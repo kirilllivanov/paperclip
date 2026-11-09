@@ -32,6 +32,14 @@ default. Use authenticated deployment with real user accounts and company
 memberships; local implicit board authority and agent/board API keys cannot
 approve user OAuth connections. Configure `TRUST_PROXY` correctly at your edge.
 
+On intranet deployments using a non-loopback HTTP URL, public MCP routes are
+not mounted. The Connectors card, assistant setup, and account-wide connection
+management show deployment guidance instead of a retryable loading error.
+Configure an HTTPS origin in `PAPERCLIP_PUBLIC_URL` (and
+`PAPERCLIP_MCP_AUTHORIZATION_ORIGIN`, if set), then restart the server. This URL
+requirement is separate from the Experimental setting; enabling that setting
+alone cannot make an HTTP deployment support public MCP.
+
 The endpoint is `POST /mcp/paperclip`, using stateless Streamable HTTP with JSON
 responses. GET/SSE sessions are unnecessary. Each invocation verifies its bearer
 token again; normal API endpoints do not accept these OAuth tokens. Public

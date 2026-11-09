@@ -26,6 +26,11 @@ Agent access: [companion](../agent-access-map/assistant-connections.md).
 
 Open Apps → **Assistant Connection (MCP)** at `/apps/assistant-connection`. Copy the scoped invitation or expand the manual setup instructions. Public instance instructions are also available at `/mcp/setup` and `/mcp/setup.md` when enabled.
 
+If public MCP routes are unavailable, the catalog card, setup, and account-wide
+management show HTTPS deployment guidance without a retry button. HTTP loopback
+remains supported for development. Authentication and temporary server failures
+keep their normal error handling.
+
 ### `browser-consent`
 
 Start connection from the external MCP client or scoped invitation, then open its `/mcp-connect/:id` browser request. Sign in if required, inspect the client/company/requested access, and choose **Connect organization** or **Cancel**.
@@ -80,7 +85,7 @@ Sources: [MCP capabilities](../../server/src/services/public-mcp/capabilities.ts
 
 ### `manage-connections`
 
-Automated: [Apps management UI](../../ui/src/pages/apps/AssistantConnection.test.tsx) covers mocked current-company controls, and [public MCP integration](../../server/src/__tests__/public-mcp.test.ts) covers persisted own-grant/token revocation. These component tests do not cover the account-wide `/assistant-connections` page or a real remote assistant after revocation.
+Automated: [Apps management UI](../../ui/src/pages/apps/AssistantConnection.test.tsx) covers mocked current-company controls and unavailable-route guidance on the account-wide `/assistant-connections` page, and [public MCP integration](../../server/src/__tests__/public-mcp.test.ts) covers persisted own-grant/token revocation. These component tests do not prove a real remote assistant's behavior after revocation.
 
 Manual: First prove a harmless read using a personal client grant. Revoke that grant in the browser, reload its list, and retry the exact same credential: the remote call must fail. As a second person, confirm their grant remains usable. Attempt removal using another person’s grant ID; the API may return a harmless no-op, so verify that person’s grant is unchanged rather than demanding a specific error. Disable Assistant connections and confirm tool calls stop while signed-in list/revoke management remains reachable. Observe any work already delegated before revocation through its ordinary task controls; revocation does not cancel it.
 
