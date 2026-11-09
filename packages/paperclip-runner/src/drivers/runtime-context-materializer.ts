@@ -1,5 +1,6 @@
 import { isOpenRouterUrl, openRouterCodexHeaders } from "./openrouter-attribution.js";
 import { randomUUID } from "node:crypto";
+import { CODEX_HEADER_ENV_KEYS, isCodexHeaderName, isPrivateEndpointHost } from "./codex-endpoint.js";
 import { constants } from "node:fs";
 import {
   chmod,
@@ -326,10 +327,28 @@ async function managedCodexProviderConfig(sourceHome?: string | null): Promise<s
   }
   const url = new URL(provider.base_url);
   if (url.username || url.password || url.search || url.hash
-    || (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))) {
+    || (url.protocol !== "https:" && !(url.protocol === "http:" && (["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || isPrivateEndpointHost(url.hostname))))) {
     throw new Error("Invalid managed Codex provider URL");
   }
-  return `model_provider = "paperclip"\n[model_providers.paperclip]\nname = "Paperclip connection"\nbase_url = ${JSON.stringify(provider.base_url)}\nwire_api = "responses"\nrequires_openai_auth = false\n${provider.env_key ? 'env_key = "PAPERCLIP_AI_PROVIDER_KEY"\n' : ""}${isOpenRouterUrl(provider.base_url) ? openRouterCodexHeaders() : ""}`;
+  let headerConfig = "";
+  if (provider.env_http_headers !== undefined) {
+    const headers = provider.env_http_headers;
+    if (!headers || typeof headers !== "object" || Array.isArray(headers)
+      || Object.keys(headers).length > CODEX_HEADER_ENV_KEYS.length) {
+      throw new Error("Invalid managed Codex header bindings");
+    }
+    const names = new Set<string>();
+    const bindings = Object.entries(headers).map(([name, key]) => {
+      if (!isCodexHeaderName(name) || names.has(name.toLowerCase())
+        || typeof key !== "string" || !CODEX_HEADER_ENV_KEYS.includes(key)) {
+        throw new Error("Invalid managed Codex header bindings");
+      }
+      names.add(name.toLowerCase());
+      return `${JSON.stringify(name)} = ${JSON.stringify(key)}`;
+    });
+    headerConfig = `env_http_headers = { ${bindings.join(", ")} }\n`;
+  }
+  return `model_provider = "paperclip"\n[model_providers.paperclip]\nname = "Paperclip connection"\nbase_url = ${JSON.stringify(provider.base_url)}\nwire_api = "responses"\nrequires_openai_auth = false\n${provider.env_key ? 'env_key = "PAPERCLIP_AI_PROVIDER_KEY"\n' : ""}${headerConfig}${isOpenRouterUrl(provider.base_url) ? openRouterCodexHeaders() : ""}`;
 }
 
 export async function prepareIsolatedCodexHome(input: {

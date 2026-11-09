@@ -24,6 +24,7 @@ import {
 } from "@paperclipai/db";
 import {
   AI_CONNECTION_CAPABILITIES,
+  codexEndpointCredentialSchema,
   decisionProviderForConnection,
   aiConnectionCatalogSlug,
   getAppStoreDefinition,
@@ -574,6 +575,12 @@ export function aiConnectionService(db: Db) {
     attemptStartedAt = new Date(),
   ) {
     const routing = "routing" in input ? input.routing : undefined;
+    if (routing?.protocol === "codex") {
+      verifiedCredential = JSON.stringify(codexEndpointCredentialSchema.parse({
+        bearerToken: verifiedCredential,
+        httpHeaders: "httpHeaders" in input ? input.httpHeaders ?? [] : [],
+      }));
+    }
     if (!(await membership(companyId, userId)))
       throw forbidden("An active company member must own this connection");
     const reconnect = input.connectionId

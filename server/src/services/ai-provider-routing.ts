@@ -2,6 +2,8 @@ import { OPENROUTER_ATTRIBUTION_HEADERS, isOpenRouterUrl, openRouterClaudeHeader
 import {
   aiRoutingBaseUrl,
   aiRoutingModel,
+  CODEX_HEADER_ENV_KEYS,
+  codexEndpointCredentialSchema,
   type AiProviderRouting,
 } from "@paperclipai/shared";
 
@@ -25,8 +27,25 @@ export function managedProviderRouting(
     env.AWS_EC2_METADATA_DISABLED = "true";
     env.AWS_BEARER_TOKEN_BEDROCK = credential;
   } else if (harness === "codex_local") {
+    let headerConfig = "";
+    if (route.protocol === "codex") {
+      // Both the token and arbitrary header values live in the existing vault slot.
+      let stored: unknown;
+      try { stored = JSON.parse(credential); }
+      catch { throw new Error("Invalid Codex endpoint credentials"); }
+      const parsed = codexEndpointCredentialSchema.safeParse(stored);
+      if (!parsed.success) throw new Error("Invalid Codex endpoint credentials");
+      credential = parsed.data.bearerToken;
+      const bindings = parsed.data.httpHeaders.map((header, i) => {
+        const key = CODEX_HEADER_ENV_KEYS[i]!;
+        env[key] = header.value;
+        return `${JSON.stringify(header.name)} = ${JSON.stringify(key)}`;
+      });
+      if (bindings.length) headerConfig = `env_http_headers = { ${bindings.join(", ")} }\n`;
+    }
     env.PAPERCLIP_AI_PROVIDER_KEY = credential;
     codexConfig = `model_provider = "paperclip"\n[model_providers.paperclip]\nname = "Paperclip connection"\nbase_url = ${JSON.stringify(baseUrl)}\nwire_api = "responses"\nrequires_openai_auth = false\n${route.auth === "none" ? "" : 'env_key = "PAPERCLIP_AI_PROVIDER_KEY"\n'}`;
+    codexConfig += headerConfig;
     if (openrouter) codexConfig += openRouterCodexHeaders();
   } else if (harness === "claude_local") {
     env.ANTHROPIC_BASE_URL = baseUrl;

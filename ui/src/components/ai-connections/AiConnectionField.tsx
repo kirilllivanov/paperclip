@@ -54,6 +54,7 @@ export function AiConnectionField({
   readOnly = false,
   preferAdvanced = false,
   routerAdapterType,
+  runnerProvider,
 }: {
   companyId: string;
   agentId?: string;
@@ -67,6 +68,7 @@ export function AiConnectionField({
   readOnly?: boolean;
   preferAdvanced?: boolean;
   routerAdapterType?: string;
+  runnerProvider?: string;
 }) {
   const provider = aiProviderForAdapter(adapterType);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -145,6 +147,7 @@ export function AiConnectionField({
       </label>}
       {value?.mode !== "router" && <AiConnectionSelect
         adapterType={adapterType}
+        runnerProvider={runnerProvider}
           model={model}
         requirement={{ companyId, provider }}
         connections={accounts.data?.connections ?? []}

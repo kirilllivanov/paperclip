@@ -607,7 +607,7 @@ environment probes and task execution. The settings file contains no credential.
 OpenClaw Gateway, Hermes Gateway, Claude Managed, AWS AgentCore, Process, HTTP,
 and legacy `acpx_local` are excluded: external agents retain their own model
 configuration, and `acpx_local` is retired. Cursor/Copilot custom routing, Pi custom gateways and Bedrock,
-Vertex, ambient AWS identity, arbitrary authentication headers, and automatic
+Vertex, ambient AWS identity, and automatic
 catalog discovery for custom gateways are not part of this implementation.
 
 OpenRouter connections without an explicit model list automatically load its public
@@ -644,6 +644,33 @@ configuration; it is not proof that the model can respond. HTTPS is required for
 remote URLs; loopback endpoints may use HTTP. Localhost refers to the agent’s
 execution environment, including when it is a sandbox. URLs cannot contain user
 credentials, query parameters, or fragments.
+
+### Custom Codex backend (fork)
+
+For **Paperclip Runner → Codex**, choose **Advanced providers → Codex endpoint**.
+Enter the full backend base URL, e.g. `http://10.0.1.1:2455/backend-api/codex`,
+the Bearer token without the `Bearer ` prefix, optional HTTP header pairs, and
+the backend's model ID. The runner must be able to reach this address.
+Codex sends streaming Responses requests to `/backend-api/codex/responses`;
+Paperclip does not insert `/v1`. This option requires native Runner Codex.
+
+HTTPS and loopback HTTP are supported. The explicit Codex option also permits
+HTTP on RFC1918 private IPv4 addresses (`10/8`, `172.16/12`, `192.168/16`).
+HTTP sends credentials unencrypted over that trusted network. Public HTTP and
+credentials, queries or fragments in URLs remain rejected.
+
+The existing encrypted vault slot holds the token and up to 16 custom headers
+together. Connection metadata and lists contain no header values. Native Codex
+receives values through bounded `env_http_headers` bindings excluded from task
+shell environments; shell snapshots remain disabled. Header names must be unique
+ignoring case. Authorization uses the Bearer field; transport framing headers
+cannot be overridden. Reconnect replaces token and all headers together while
+retaining destination and grants; enter all required headers again.
+
+Saving records configuration. Use **Run test** in the execution environment to
+verify the actual backend and model. The controlled pinned app-server test proves
+the outgoing URL, Authorization, custom headers and streaming body against a
+rejecting fixture; it does not prove a live response from a particular proxy.
 
 Managed Grok uses a disposable runtime home. Paperclip does not retain or restore
 Grok transcript files into host temporary directories: private file modes do not

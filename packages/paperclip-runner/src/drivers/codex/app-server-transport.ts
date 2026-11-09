@@ -1,4 +1,5 @@
 import { configuredEnvironment } from "../../configured-environment.js";
+import { CODEX_HEADER_ENV_KEYS } from "../codex-endpoint.js";
 import type { NativeTurnControlCapabilities } from "../../contracts/types.js";
 import type { NativeRunRuntimeGrant } from "../../contracts/runtime-context.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -206,6 +207,7 @@ class BoundedLineDecoder {
 }
 
 const SAFE_ENVIRONMENT_KEYS = [
+  ...CODEX_HEADER_ENV_KEYS,
   "OTEL_EXPORTER_OTLP_LOGS_TIMEOUT", "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT",
   "AGENT_HOME",
   "ALL_PROXY",
@@ -376,6 +378,7 @@ export class ProcessCodexAppServerTransport implements CodexAppServerTransport {
   readonly #closeGraceMs: number;
   readonly #onProcess?: (info: CodexTransportProcessInfo) => void;
   #onDiagnostic?: (message: string) => void;
+  readonly #diagnosticSecrets: string[];
   readonly #maxLineBytes: number;
   readonly #maxPendingRequests: number;
   readonly #maxInflightServerRequests: number;
@@ -385,6 +388,7 @@ export class ProcessCodexAppServerTransport implements CodexAppServerTransport {
 
   constructor(options: ProcessCodexTransportOptions = {}) {
     this.#onDiagnostic = options.onDiagnostic;
+    this.#diagnosticSecrets = CODEX_HEADER_ENV_KEYS.map(key => options.environment?.[key]).filter((value): value is string => Boolean(value));
     this.#maxLineBytes = positiveLimit(
       options.maxLineBytes,
       DEFAULT_MAX_LINE_BYTES,
@@ -436,7 +440,7 @@ export class ProcessCodexAppServerTransport implements CodexAppServerTransport {
     );
     this.#stderrDecoder = new BoundedLineDecoder(
       MAX_DIAGNOSTIC_LINE_BYTES,
-      (line) => this.#onDiagnostic?.(redactCodexDiagnostic(line)),
+      (line) => this.#onDiagnostic?.(redactCodexDiagnostic(line, this.#diagnosticSecrets)),
       () =>
         this.#onDiagnostic?.(
           "codex app-server diagnostic line exceeded retention limit",
@@ -647,7 +651,7 @@ export class ProcessCodexAppServerTransport implements CodexAppServerTransport {
       if (hasError) {
         pending.reject(
           new CodexRpcError(
-            redactCodexDiagnostic(boundedJson(message.error)),
+            redactCodexDiagnostic(boundedJson(message.error), this.#diagnosticSecrets),
             rpcErrorCode(message.error),
           ),
         );
@@ -724,7 +728,7 @@ export class ProcessCodexAppServerTransport implements CodexAppServerTransport {
             id: request.id,
             error: {
               code: -32_000,
-              message: redactCodexDiagnostic(String(error)),
+              message: redactCodexDiagnostic(String(error), this.#diagnosticSecrets),
             },
           });
         },
@@ -751,7 +755,7 @@ export class ProcessCodexAppServerTransport implements CodexAppServerTransport {
     this.#signal("SIGKILL");
     this.#notifications.close(error);
     this.#failAll(error);
-    this.#onDiagnostic?.(redactCodexDiagnostic(error.message));
+    this.#onDiagnostic?.(redactCodexDiagnostic(error.message, this.#diagnosticSecrets));
   }
 
   #failAll(error: Error): void {

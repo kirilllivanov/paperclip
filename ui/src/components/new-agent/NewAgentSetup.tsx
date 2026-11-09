@@ -960,6 +960,7 @@ function Setup({
                             companyId={companyId}
                             agentName={name}
                             adapterType={brandType}
+                            runnerProvider={brandType === "codex_local" && (isRunner || runner === "paperclip" || (runner === "auto" && defaultRunner === "paperclip")) ? "codex" : undefined}
                             model={model}
                             environmentId={environmentId ?? undefined}
                             value={aiBinding}
@@ -1080,6 +1081,7 @@ function Setup({
                         </>}
                         {!connectionAdapter && aiProviderForAdapter(brandType) && (
                           <AiConnectionField companyId={companyId} agentName={name} adapterType={brandType} model={model} environmentId={environmentId ?? undefined} value={aiBinding}
+                            runnerProvider={brandType === "codex_local" && (isRunner || runner === "paperclip" || (runner === "auto" && defaultRunner === "paperclip")) ? "codex" : undefined}
                             onChange={binding => { binding.mode !== "router" && setRuntimeAiBinding(binding); resetTest();
                               if (brandType === "copilot_runtime" && hashKey([aiBinding ?? null]) === hashKey([binding ?? null])) void refreshCopilotModels();
                             }} />

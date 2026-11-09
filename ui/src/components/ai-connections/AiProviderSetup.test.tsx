@@ -33,6 +33,38 @@ it("reconnects an older OpenRouter account without adding routing metadata", asy
 });
 
 const providerSources = ["openrouter", "bedrock", "responses-api", "messages-api", "chat-completions-api", "local"];
+it("saves a private Codex backend with a Bearer token and secret headers", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  client.setQueryData(["ai-connections", "company", undefined], { canManageConnections: true, connections: [] });
+  client.setQueryData(["agents", "company", "provider-access"], []);
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  async function fill(label: string, value: string) {
+    const input = container.querySelector(`input[aria-label="${label}"]`)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+  try {
+    await act(async () => root.render(<QueryClientProvider client={client}><AiProviderSetup companyId="company" initialProvider="codex" initialProtocol="responses" onCancel={() => {}} onComplete={() => {}} /></QueryClientProvider>));
+    await fill("Provider URL", "http://10.0.1.1:2455/backend-api/codex");
+    await fill("Bearer token", "private-token");
+    await act(async () => Array.from(container.querySelectorAll("button")).find(b => b.textContent === "Add HTTP header")!.click());
+    await fill("Header name 1", "ChatGPT-Account-Id");
+    await fill("Header value 1", "private-account");
+    expect(container.querySelector('input[aria-label="Header value 1"]')!.getAttribute("type")).toBe("password");
+    await act(async () => container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(aiConnectionsApi.create).toHaveBeenLastCalledWith("company", expect.objectContaining({
+      provider: "openai", method: "api_key", apiKey: "private-token",
+      routing: expect.objectContaining({ protocol: "codex", auth: "bearer", baseUrl: "http://10.0.1.1:2455/backend-api/codex" }),
+      httpHeaders: [{ name: "ChatGPT-Account-Id", value: "private-account" }],
+    }));
+    expect((container.querySelector('input[aria-label="Bearer token"]') as HTMLInputElement).value).toBe("");
+    expect(container.querySelector('input[aria-label="Header value 1"]')).toBeNull();
+  } finally { await act(async () => root.unmount()); client.clear(); }
+});
+
 it("shows advanced providers directly when entered from advanced connection mode", async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   client.setQueryData(["ai-connections", "company", undefined], { canManageConnections: true, connections: [] });
@@ -42,7 +74,7 @@ it("shows advanced providers directly when entered from advanced connection mode
   try {
     await act(async () => root.render(<QueryClientProvider client={client}><AiProviderSetup companyId="company" advancedOnly onCancel={() => {}} onComplete={() => {}} /></QueryClientProvider>));
     const choices = Array.from(container.querySelectorAll("button[aria-label]")).map(button => button.getAttribute("aria-label"));
-    expect(choices).toEqual(["OpenRouter", "Amazon Bedrock", "Custom gateway", "Local endpoint"]);
+    expect(choices).toEqual(["OpenRouter", "Amazon Bedrock", "Custom gateway", "Codex endpoint", "Local endpoint"]);
     expect(container.querySelector("details")).toBeNull();
   } finally {
     await act(async () => root.unmount()); client.clear();

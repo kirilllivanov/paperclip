@@ -1795,6 +1795,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
 
           {!isExternalRunner && !isCreate && selectedCompanyId && <AiConnectionField companyId={selectedCompanyId} agentId={props.agent.id} agentName={props.agent.name} adapterType={aiRoutingHarness(adapterType, eff("adapterConfig", "provider", config.provider), eff("adapterConfig", "acpxAgent", config.acpxAgent))}
             routerAdapterType={adapterType} value={aiRuntimeConnectionBindingSchema.safeParse((overlay.runtime.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? runtimeConfig.aiConnection).data}
+            runnerProvider={adapterType === "paperclip_runner" && eff("adapterConfig", "provider", config.provider) === "codex" ? "codex" : undefined}
             model={String(eff("adapterConfig", "model", config.model) ?? "")} environmentId={currentDefaultEnvironmentId || undefined} legacy
             onChange={binding => {
               mark("runtime", "runtimeConfig", { ...runtimeConfig, aiConnection: binding });

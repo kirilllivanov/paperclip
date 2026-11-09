@@ -1,5 +1,8 @@
 /** Redact diagnostic text without importing the provider process or its credentials. */
-export function redactCodexDiagnostic(message: string): string {
+export function redactCodexDiagnostic(message: string, secrets: readonly string[] = []): string {
+  for (const value of [...secrets].filter(Boolean).sort((a, b) => b.length - a.length)) {
+    message = message.replaceAll(value, "[REDACTED]").replaceAll(JSON.stringify(value).slice(1, -1), "[REDACTED]");
+  }
   return message
     .replaceAll(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
     .replace(/Bearer\s+[A-Za-z0-9._~+\/-]+/gi, "Bearer [REDACTED]")
@@ -24,6 +27,10 @@ export function redactCodexDiagnostic(message: string): string {
     )
     .replace(
       /(api[_-]?key|token|secret|password)\s*[=:]\s*[^\s,;]+/gi,
+      "$1=[REDACTED]",
+    )
+    .replace(
+      /(PAPERCLIP_CODEX_HEADER_SECRET_\d+)=[^\s]+/g,
       "$1=[REDACTED]",
     )
     .replace(

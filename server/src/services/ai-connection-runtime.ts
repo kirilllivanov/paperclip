@@ -10,6 +10,7 @@ import { and, eq } from "drizzle-orm";
 import { type Db, companySecrets, connectionGrants } from "@paperclipai/db";
 import {
   AI_CONNECTION_CAPABILITIES,
+  CODEX_HEADER_ENV_KEYS,
   aiConnectionMetadataSchema, aiRoutingHarness,
   type AiConnectionBinding,
 } from "@paperclipai/shared";
@@ -31,6 +32,7 @@ export function isAiConnectionBusy(error: unknown): error is HttpError {
 
 // Blank values intentionally override inherited credentials in CLI child environments.
 export const AI_AUTH_ENV_KEYS = [
+  ...CODEX_HEADER_ENV_KEYS,
   "COPILOT_GITHUB_TOKEN",
   "PAPERCLIP_AI_PROVIDER_KEY", "PAPERCLIP_AI_PROVIDER_URL", "PAPERCLIP_CODEX_PROVIDERS",
   "GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_BASE_URL", "GOOGLE_GENAI_USE_VERTEXAI",

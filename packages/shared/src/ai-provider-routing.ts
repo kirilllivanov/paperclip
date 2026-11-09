@@ -1,10 +1,11 @@
 import { z } from "zod";
+import { isPrivateEndpointHost } from "./codex-endpoint.js";
 
 /** Value-free routing stored on the connection, never supplied by an agent binding. */
 export const aiProviderRoutingSchema = z
   .object({
     kind: z.enum(["openrouter", "bedrock", "gateway", "local"]),
-    protocol: z.enum(["responses", "messages", "chat", "bedrock"]),
+    protocol: z.enum(["responses", "messages", "chat", "bedrock", "codex"]),
     baseUrl: z.string().trim().max(2048).optional(),
     auth: z
       .enum(["bearer", "api_key", "none"])
@@ -51,6 +52,8 @@ export const aiProviderRoutingSchema = z
       invalid("OpenRouter uses its official endpoint and an API key.");
     if (route.auth === "api_key" && route.protocol !== "messages")
       invalid("API-key header authentication requires Anthropic Messages.");
+    if (route.protocol === "codex" && (route.kind !== "gateway" || route.auth !== "bearer"))
+      invalid("Codex endpoints require a custom gateway and Bearer authentication.");
     if (route.kind === "gateway" || route.kind === "local") {
       try {
         const url = new URL(route.baseUrl ?? "");
@@ -62,14 +65,14 @@ export const aiProviderRoutingSchema = z
           url.password ||
           url.search ||
           url.hash ||
-          (url.protocol !== "https:" && !(url.protocol === "http:" && loopback))
+          (url.protocol !== "https:" && !(url.protocol === "http:" && (loopback || (route.protocol === "codex" && isPrivateEndpointHost(url.hostname)))))
         )
           throw new Error();
         if (route.kind === "local" && !loopback)
           invalid("A local endpoint must use localhost or a loopback address.");
       } catch {
         invalid(
-          "Enter an HTTPS base URL without credentials, query parameters, or a fragment. Local endpoints may use HTTP.",
+          "Enter an HTTPS base URL without credentials, query parameters, or a fragment. Loopback and private-network Codex endpoints may use HTTP.",
         );
       }
     }
@@ -111,7 +114,7 @@ export function isAiRoutingCompatible(
       "pi_local",
       "hermes_local",
     ].includes(harness);
-  if (route.protocol === "responses") return harness === "codex_local";
+  if (route.protocol === "responses" || route.protocol === "codex") return harness === "codex_local";
   if (route.protocol === "messages") return harness === "claude_local";
   return ["opencode_local", "hermes_local"].includes(harness);
 }

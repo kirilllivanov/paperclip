@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isCodexHeaderName } from "./codex-endpoint.js";
 import { aiProviderRoutingSchema, aiRoutingHarness, isAiRoutingCompatible, type AiProviderRouting } from "./ai-provider-routing.js";
 
 /** Runtime authentication is a separate transport, never a tool or channel. */
@@ -123,6 +124,8 @@ export function isAiConnectionCompatible(
   runnerProvider?: unknown,
   acpxAgent?: unknown,
 ): boolean {
+  if ("routing" in requirement && requirement.routing?.protocol === "codex"
+    && (adapterType !== "paperclip_runner" || runnerProvider !== "codex")) return false;
   adapterType = aiRoutingHarness(adapterType, runnerProvider, acpxAgent);
   if ("routing" in requirement && requirement.routing) return requirement.method === "api_key" && isAiRoutingCompatible(requirement.routing, adapterType);
   // A fixed binding contains identity only. The service checks authoritative
@@ -188,6 +191,14 @@ export interface AiConnectionList {
   canManageConnections: boolean;
   connections: AiManagedConnectionSummary[];
 }
+export const codexEndpointCredentialSchema = z.object({
+  bearerToken: z.string().min(1).max(32768).regex(/^[^\r\n\x00]+$/),
+  httpHeaders: z.array(z.object({
+    name: z.string().trim().refine(isCodexHeaderName, "Invalid or reserved HTTP header name"),
+    value: z.string().min(1).max(8192).regex(/^[\x20-\x7e\x80-\xff]+$/, "Invalid HTTP header value"),
+  }).strict()).max(16).refine(headers => new Set(headers.map(h => h.name.toLowerCase())).size === headers.length, "HTTP header names must be unique."),
+}).strict();
+
 export const createAiConnectionSchema = z
   .object({
     ...requirement,
@@ -195,6 +206,7 @@ export const createAiConnectionSchema = z
     ownership: z.enum(["personal", "shared"]),
     routing: aiProviderRoutingSchema.optional(),
     apiKey: z.string().trim().min(1).max(32768).optional(),
+    httpHeaders: codexEndpointCredentialSchema.shape.httpHeaders.optional(),
     environmentId: z.string().uuid().nullable().optional(),
     loginSessionId: z.string().max(128).optional(),
     connectionId: z.string().uuid().optional(),
@@ -203,6 +215,10 @@ export const createAiConnectionSchema = z
   })
   .strict()
   .superRefine((v, ctx) => {
+    if (v.httpHeaders?.length && v.routing?.protocol !== "codex")
+      ctx.addIssue({ code: "custom", message: "Custom headers require a Codex endpoint." });
+    if (v.routing?.protocol === "codex" && v.apiKey && /[\r\n\x00]/.test(v.apiKey))
+      ctx.addIssue({ code: "custom", message: "Invalid Bearer token." });
     if (!AI_CONNECTION_CAPABILITIES[v.provider].methods[v.method])
       ctx.addIssue({ code: "custom", message: "Unsupported sign-in method" });
     if (v.routing && (v.method !== "api_key" || (v.routing.kind === "openrouter" && v.provider !== "openrouter") || (v.routing.kind === "bedrock" && v.provider !== "anthropic")))

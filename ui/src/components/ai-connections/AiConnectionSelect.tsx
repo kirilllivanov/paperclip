@@ -41,9 +41,11 @@ export function AiConnectionSelect({
   onReconnect,
   onChange,
   adapterType,
+  runnerProvider,
   model,
-}: AiConnectionPickerProps & { adapterType: string; model?: string }) {
+}: AiConnectionPickerProps & { adapterType: string; model?: string; runnerProvider?: string }) {
   const selectId = useId();
+  const compatibilityAdapter = adapterType === "codex_local" && runnerProvider === "codex" ? "paperclip_runner" : adapterType;
   const personal = personalAiDefault(connections, requirement, currentUserId);
   const selected =
     value?.mode === "responsible_user"
@@ -59,8 +61,9 @@ export function AiConnectionSelect({
         c.companyId === requirement.companyId &&
         isAiConnectionCompatible(
           c,
-          adapterType,
+          compatibilityAdapter,
           compatibilityModel(c.provider),
+          runnerProvider,
         ),
     )
     .sort(
@@ -82,8 +85,9 @@ export function AiConnectionSelect({
       method: "api_key",
       mode: "responsible_user",
     },
-    adapterType,
+    compatibilityAdapter,
     compatibilityModel(requirement.provider),
+    runnerProvider,
   );
   const incompatible =
     selected && !compatible.some((c) => c.id === selected.id);

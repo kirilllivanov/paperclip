@@ -19,10 +19,12 @@ describe("Codex app-server transport limits", () => {
   it("passes the selected managed provider key without admitting arbitrary host secrets", () => {
     expect(createSanitizedCodexEnvironment({
       PAPERCLIP_AI_PROVIDER_KEY: "selected-provider-key",
+      PAPERCLIP_CODEX_HEADER_SECRET_0: "selected-header",
+      PAPERCLIP_CODEX_HEADER_SECRET_16: "outside-bound",
       CODEX_HOME: "/isolated/connection",
       OPENROUTER_API_KEY: "ambient-other-key",
       DATABASE_URL: "private-database",
-    })).toEqual({ PAPERCLIP_AI_PROVIDER_KEY: "selected-provider-key", CODEX_HOME: "/isolated/connection" });
+    })).toEqual({ PAPERCLIP_AI_PROVIDER_KEY: "selected-provider-key", PAPERCLIP_CODEX_HEADER_SECRET_0: "selected-header", CODEX_HOME: "/isolated/connection" });
   });
 
   it("passes only bounded controller-projected GitHub credentials", () => {
@@ -62,6 +64,10 @@ describe("Codex app-server transport limits", () => {
   });
 
   it("redacts real Basic credentials without corrupting ordinary question copy", () => {
+    expect(redactCodexDiagnostic("upstream echoed private-header-value", ["private-header-value"]))
+      .toBe("upstream echoed [REDACTED]");
+    expect(redactCodexDiagnostic("PAPERCLIP_CODEX_HEADER_SECRET_0=private;still-private"))
+      .toBe("PAPERCLIP_CODEX_HEADER_SECRET_0=[REDACTED]");
     expect(redactCodexDiagnostic("Authorization: Basic dXNlcjpwYXNz"))
       .toBe("Authorization: Basic [REDACTED]");
     expect(redactCodexDiagnostic("Basic API foundation"))
