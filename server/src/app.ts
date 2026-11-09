@@ -614,7 +614,14 @@ export async function createApp(
   );
   let mcpConfig: ReturnType<typeof publicMcpConfig> = null;
   try { mcpConfig = publicMcpConfig(process.env, opts.authPublicBaseUrl); }
-  catch { logger.warn("Assistant connections require an HTTPS public URL (HTTP loopback is allowed for development)."); }
+  catch { logger.warn("Assistant connections require valid public/authorization origins using HTTPS (HTTP loopback is allowed; private-network HTTP requires PAPERCLIP_MCP_ALLOW_INSECURE_HTTP=true). See doc/public-mcp.md."); }
+  if (mcpConfig && [mcpConfig.origin, mcpConfig.authorizationOrigin].some((origin) => {
+    if (!origin) return false;
+    const url = new URL(origin);
+    return url.protocol === "http:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  })) {
+    logger.warn("Assistant connections are using explicitly enabled unencrypted HTTP. Use only on a trusted private network with a client that supports HTTP OAuth.");
+  }
   const publicMcpOAuth = mcpConfig ? createPublicMcpOAuth(db, mcpConfig) : null;
   const publicMcpIngress = Router();
 

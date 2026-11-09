@@ -34,7 +34,8 @@ describe("assistant setup from Connections", () => {
     mocks.connections.mockRejectedValue(new ApiError("Not found", 404, null));
     await render(<AssistantConnectionCard onNavigate={vi.fn()} />);
     expect(container.textContent).toContain("public HTTPS URL");
-    expect(container.textContent).toContain("localhost/loopback");
+    expect(container.textContent).toContain("HTTP loopback");
+    expect(container.textContent).toContain("explicitly enable HTTP for a trusted private network");
     expect(container.querySelector('a[href*="doc/public-mcp.md"]')).not.toBeNull();
     expect(container.textContent).not.toContain("Try again");
     expect(container.textContent).not.toContain("Couldn’t load");

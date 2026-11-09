@@ -26,19 +26,42 @@ Turning it off blocks new calls and deliveries; already delegated work continues
 Connection management and revocation remain available. Turning it back on allows
 unexpired connections and subscriptions to resume.
 
-The URL must be an origin without a path, credentials, query or fragment. HTTP
-is allowed only for localhost/loopback development. The feature is disabled by
-default. Use authenticated deployment with real user accounts and company
+The URL must be an origin without a path, credentials, query or fragment. By
+default HTTP is allowed only for localhost/loopback development. The feature is
+disabled by default. Use authenticated deployment with real user accounts and company
 memberships; local implicit board authority and agent/board API keys cannot
 approve user OAuth connections. Configure `TRUST_PROXY` correctly at your edge.
 
-On intranet deployments using a non-loopback HTTP URL, public MCP routes are
-not mounted. The Connectors card, assistant setup, and account-wide connection
+On intranet deployments using a non-loopback HTTP URL without the opt-in below,
+public MCP routes are not mounted. The Connectors card, assistant setup, and account-wide connection
 management show deployment guidance instead of a retryable loading error.
 Configure an HTTPS origin in `PAPERCLIP_PUBLIC_URL` (and
 `PAPERCLIP_MCP_AUTHORIZATION_ORIGIN`, if set), then restart the server. This URL
 requirement is separate from the Experimental setting; enabling that setting
 alone cannot make an HTTP deployment support public MCP.
+
+This fork additionally supports an explicit HTTP opt-in for a trusted private
+network and a custom client that accepts HTTP OAuth:
+
+```sh
+PAPERCLIP_PUBLIC_URL=http://paperclip.internal:3100
+PAPERCLIP_MCP_ALLOW_INSECURE_HTTP=true
+```
+
+Restart the server after changing these environment variables. Only the exact
+value `true` enables this mode. It also allows HTTP for
+`PAPERCLIP_MCP_AUTHORIZATION_ORIGIN`, if configured. The startup log warns when
+non-loopback HTTP is used. HTTP sends credentials and tokens without transport
+encryption; keep this mode inside a trusted, protected network. Public Internet
+deployments must use HTTPS.
+
+This is a fork-specific compatibility mode, outside the MCP HTTPS requirement.
+Clients may reject HTTP independently; the bundled Paperclip CLI still rejects
+non-loopback HTTP. For a custom local client, use dynamic client registration
+with an HTTP loopback callback, or device authorization. The opt-in does not
+relax callback validation or HTTPS client-metadata fetching, and does not bypass
+the Experimental setting, user sign-in, consent, PKCE, scopes, company membership,
+or exact origin/resource checks.
 
 The endpoint is `POST /mcp/paperclip`, using stateless Streamable HTTP with JSON
 responses. GET/SSE sessions are unnecessary. Each invocation verifies its bearer

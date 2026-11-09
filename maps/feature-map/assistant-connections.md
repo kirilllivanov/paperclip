@@ -27,8 +27,10 @@ Agent access: [companion](../agent-access-map/assistant-connections.md).
 Open Apps → **Assistant Connection (MCP)** at `/apps/assistant-connection`. Copy the scoped invitation or expand the manual setup instructions. Public instance instructions are also available at `/mcp/setup` and `/mcp/setup.md` when enabled.
 
 If public MCP routes are unavailable, the catalog card, setup, and account-wide
-management show HTTPS deployment guidance without a retry button. HTTP loopback
-remains supported for development. Authentication and temporary server failures
+management show deployment guidance without a retry button. HTTP loopback
+remains supported for development; this fork also permits private-network HTTP
+with `PAPERCLIP_MCP_ALLOW_INSECURE_HTTP=true` and a compatible custom client.
+Authentication and temporary server failures
 keep their normal error handling.
 
 ### `browser-consent`
@@ -49,7 +51,7 @@ Open the current-company Assistant Connection card or `/assistant-connections` f
 
 ## Driving it with Playwright, an MCP client, and the Paperclip CLI
 
-Preconditions: follow the [baseline](./README.md#before-driving-a-journey). Use an owned authenticated instance with Assistant connections (MCP) enabled and the configured public MCP/authorization origin. Use HTTPS, or the documented HTTP loopback development exception, a real signed-in person, a disposable company, and an actual MCP client. Local implicit board access does not prove human consent. Record client, resource URL, requested/granted scopes, company, and experimental settings without codes, credentials, or tokens. See [Public MCP](../../doc/public-mcp.md) for the instance configuration and release limits.
+Preconditions: follow the [baseline](./README.md#before-driving-a-journey). Use an owned authenticated instance with Assistant connections (MCP) enabled and the configured public MCP/authorization origin. Use HTTPS, the documented HTTP loopback development exception, or this fork's explicit private-network HTTP opt-in with a compatible custom client. The bundled CLI still rejects non-loopback HTTP. Use a real signed-in person, a disposable company, and an actual MCP client. Local implicit board access does not prove human consent. Record client, resource URL, requested/granted scopes, company, and experimental settings without codes, credentials, or tokens. See [Public MCP](../../doc/public-mcp.md) for the instance configuration and release limits.
 
 ### `apps-setup`
 
