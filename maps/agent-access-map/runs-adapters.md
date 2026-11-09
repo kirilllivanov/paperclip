@@ -5,8 +5,10 @@ Product map: [Runs, harnesses, and model accounts](../feature-map/runs-adapters.
 Feature ID: `runs-adapters`.
 
 Native Codex custom endpoints use existing AI connection grants, company scope,
-installation and credential ownership checks. Token and custom headers share
-an encrypted vault slot; connection metadata and summaries contain no header
+installation and credential ownership checks. The Apps / Connectors card is
+Codex endpoint; grouping derives from routing metadata even for older Responses
+API application records. Token and custom headers share an encrypted vault
+slot; connection metadata and summaries contain no header
 values. Only Paperclip Runner → Codex is compatible. Generated header variables
 are excluded from task shell projections. See
 [AI connections](../../doc/connections/AI-CONNECTIONS.md#custom-codex-backend-fork).

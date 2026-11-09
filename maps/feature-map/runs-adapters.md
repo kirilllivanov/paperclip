@@ -71,8 +71,10 @@ own login keys must remain unavailable. Verify the same delivery without an
 agent identity. Shell-policy metadata must contain names rather than values.
 
 Choose Codex as the harness; the UI displays its name/icon for both runners.
-For a custom backend, select Paperclip Runner, then Advanced providers →
-Codex endpoint. Enter the full backend URL, Bearer token and optional HTTP
+For a custom backend, open Apps / Connectors → Codex endpoint, or select
+Paperclip Runner, then Advanced providers → Codex endpoint. Existing Codex
+backend connections saved under Responses API appear under the Codex card.
+Enter the full backend URL, Bearer token and optional HTTP
 headers. Save and reload; test the model from the runner environment.
 Private IPv4 HTTP is supported. Reconnect replaces token and headers together.
 The [endpoint transport test](../../packages/paperclip-runner/src/drivers/runtime-context-materializer-codex-endpoint.test.ts)

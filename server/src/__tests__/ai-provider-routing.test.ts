@@ -5,6 +5,8 @@ import {
   aiRoutingModel,
   createAiConnectionSchema,
   isAiConnectionCompatible,
+  aiConnectionCatalogSlug,
+  aiProviderSetupPreset,
   CODEX_HEADER_ENV_KEYS,
   isCodexHeaderName,
   isPrivateEndpointHost,
@@ -23,6 +25,8 @@ describe("provider routing", () => {
       expect(runnerContract.isPrivateEndpointHost(host)).toBe(isPrivateEndpointHost(host));
   });
   it("accepts a private HTTP Codex backend only for native Runner Codex", () => {
+    expect(aiConnectionCatalogSlug("openai", codexRoute)).toBe("codex-endpoint");
+    expect(aiProviderSetupPreset("codex-endpoint")).toEqual({ provider: "codex", protocol: "codex", label: "Codex endpoint" });
     const input = createAiConnectionSchema.parse(codexInput);
     expect(isAiConnectionCompatible(input, "paperclip_runner", "gpt-5.4", "codex")).toBe(true);
     for (const [adapter, provider] of [["codex_local", undefined], ["paperclip_runner", "opencode"], ["paperclip_runner", "acpx"]])

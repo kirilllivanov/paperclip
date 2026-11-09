@@ -622,6 +622,12 @@
       "localAsset": "/brands/apps/api-key-generic.svg"
     },
     {
+      "slug": "codex-endpoint",
+      "provider": "Codex endpoint",
+      "catalogVisible": true,
+      "localAsset": "/brands/apps/api-key-generic.svg"
+    },
+    {
       "slug": "speko",
       "provider": "Speko",
       "catalogVisible": true,

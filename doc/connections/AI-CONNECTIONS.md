@@ -647,7 +647,10 @@ credentials, query parameters, or fragments.
 
 ### Custom Codex backend (fork)
 
-For **Paperclip Runner → Codex**, choose **Advanced providers → Codex endpoint**.
+In **Apps / Connectors**, choose **Codex endpoint**. Agent setup also offers
+**Advanced providers → Codex endpoint** for **Paperclip Runner → Codex**.
+Connections created in fork version 2026.1106.4 appear under this card even if
+originally saved under Responses API; no recreation or database migration is needed.
 Enter the full backend base URL, e.g. `http://10.0.1.1:2455/backend-api/codex`,
 the Bearer token without the `Bearer ` prefix, optional HTTP header pairs, and
 the backend's model ID. The runner must be able to reach this address.

@@ -140,6 +140,7 @@ export function aiRoutingModel(
 /** Catalog identity is derived from routing, including accounts saved before these rows existed. */
 export function aiConnectionCatalogSlug(provider: string, routing?: Pick<AiProviderRouting, "kind" | "protocol">): string {
   if (routing?.kind === "gateway") {
+    if (routing.protocol === "codex") return "codex-endpoint";
     return routing.protocol === "messages" ? "messages-api"
       : routing.protocol === "chat" ? "chat-completions-api" : "responses-api";
   }
@@ -148,11 +149,12 @@ export function aiConnectionCatalogSlug(provider: string, routing?: Pick<AiProvi
 
 /** Direct catalog setup presets; legacy gateway links still open their existing setup. */
 export function aiProviderSetupPreset(source: string | null): {
-  provider: "openrouter" | "bedrock" | "gateway" | "local" | "google";
+  provider: "openrouter" | "bedrock" | "gateway" | "local" | "google" | "codex";
   protocol?: AiProviderRouting["protocol"];
   label?: string;
 } | undefined {
   switch (source) {
+    case "codex-endpoint": return { provider: "codex", protocol: "codex", label: "Codex endpoint" };
     case "responses-api": return { provider: "gateway", protocol: "responses", label: "Responses API" };
     case "messages-api": return { provider: "gateway", protocol: "messages", label: "Messages API" };
     case "chat-completions-api": return { provider: "gateway", protocol: "chat", label: "Chat Completions API" };

@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "slug": "codex-endpoint",
+  "name": "Codex endpoint",
+  "description": "Connect Paperclip Runner Codex to a custom Codex backend with a base URL, Bearer token and HTTP headers.",
+  "categories": [
+    "ai"
+  ],
+  "branding": {
+    "logoUrl": "/brands/apps/api-key-generic.svg"
+  },
+  "urlPatterns": [],
+  "methods": [
+    {
+      "key": "ai-api_key",
+      "label": "Codex endpoint API key",
+      "purpose": "ai",
+      "transport": "runtime_auth",
+      "auth": "api_key",
+      "ai": {
+        "provider": "openai",
+        "method": "api_key"
+      },
+      "grantKinds": [
+        "user",
+        "organization"
+      ],
+      "ownershipModes": [
+        "customer"
+      ],
+      "whenToUse": "Connect Paperclip Runner Codex to a custom Codex backend with a base URL, Bearer token and HTTP headers.",
+      "guidanceMd": "Use your personal account or an explicitly shared company account.",
+      "riskTier": "S3",
+      "credentialFields": [
+        {
+          "key": "apiKey",
+          "label": "API key",
+          "type": "password",
+          "required": true,
+          "placeholder": "Enter API key",
+          "secret": true
+        }
+      ],
+      "keyPlacement": {
+        "location": "env",
+        "name": "PAPERCLIP_AI_PROVIDER_KEY"
+      }
+    }
+  ],
+  "tags": [
+    "model-provider"
+  ]
+}

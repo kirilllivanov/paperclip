@@ -32,7 +32,23 @@ it("reconnects an older OpenRouter account without adding routing metadata", asy
   }
 });
 
-const providerSources = ["openrouter", "bedrock", "responses-api", "messages-api", "chat-completions-api", "local"];
+const providerSources = ["openrouter", "bedrock", "responses-api", "codex-endpoint", "messages-api", "chat-completions-api", "local"];
+it("reconnects an older Codex endpoint with the Codex name and header form", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  try {
+    const account = { id: "connection", grantId: "grant", companyId: "company", provider: "openai", method: "api_key", name: "My Codex", ownership: "personal", isDefault: false, status: "connected",
+      routing: { kind: "gateway", protocol: "codex", auth: "bearer", baseUrl: "http://10.0.1.1:2455/backend-api/codex", models: [] } } as const;
+    await act(async () => root.render(<QueryClientProvider client={client}><AiProviderSetup companyId="company" providerLabel="Responses API"
+      reconnect={{ ...account, routing: { ...account.routing, models: [] } }} onCancel={() => {}} onComplete={() => {}} /></QueryClientProvider>));
+    expect(container.textContent).toContain("Reconnect Codex endpoint");
+    expect(container.textContent).not.toContain("Reconnect Responses API");
+    expect(container.querySelector('input[aria-label="Bearer token"]')).not.toBeNull();
+    expect([...container.querySelectorAll("button")].some(button => button.textContent === "Add HTTP header")).toBe(true);
+  } finally { await act(async () => root.unmount()); client.clear(); }
+});
+
 it("saves a private Codex backend with a Bearer token and secret headers", async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   client.setQueryData(["ai-connections", "company", undefined], { canManageConnections: true, connections: [] });

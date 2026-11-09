@@ -252,10 +252,10 @@ describe("Connectors landing page", () => {
   }
 
   it("shows provider catalog rows and splits legacy gateway accounts by API format", async () => {
-    const slugs = ["notion", "openrouter", "bedrock", "google", "responses-api", "messages-api", "chat-completions-api", "local"];
+    const slugs = ["notion", "openrouter", "bedrock", "google", "responses-api", "codex-endpoint", "messages-api", "chat-completions-api", "local"];
     listGalleryMock.mockResolvedValue({ apps: slugs.map(slug => getAppStoreDefinition(slug)) });
     listApplicationsMock.mockResolvedValue({ applications: [application({ id: "gateway-app", name: "Model gateway", applicationKey: "app-gallery:gateway", metadata: { sourceTemplateKey: "gateway" } })] });
-    listConnectionsMock.mockResolvedValue({ connections: ["responses", "messages"].map(protocol => connection({
+    listConnectionsMock.mockResolvedValue({ connections: ["responses", "messages", "codex"].map(protocol => connection({
       id: protocol, name: `${protocol} account`, applicationId: "gateway-app", connectionPurpose: "ai",
       config: { sourceTemplateKey: "gateway", ai: { provider: protocol === "messages" ? "anthropic" : "openai", method: "api_key", routing: { kind: "gateway", protocol, auth: "bearer", baseUrl: "https://models.example.com/v1", models: [] } } },
     })) });
@@ -265,13 +265,41 @@ describe("Connectors landing page", () => {
     for (const slug of slugs) expect(container.querySelector(`[data-app-slug="${slug}"]`)).not.toBeNull();
     const responses = container.querySelector('[data-app-slug="responses-api"]')!;
     const messages = container.querySelector('[data-app-slug="messages-api"]')!;
+    const codex = container.querySelector('[data-app-slug="codex-endpoint"]')!;
     expect(responses.textContent).toContain("responses account");
     expect(responses.textContent).not.toContain("messages account");
     expect(messages.textContent).toContain("messages account");
+    expect(codex.textContent).toContain("codex account");
+    expect(responses.textContent).not.toContain("codex account");
     const bedrock = container.querySelector('[data-app-slug="bedrock"]')!;
     const connect = Array.from(bedrock.querySelectorAll('button')).find(button => button.textContent?.includes("Connect"))!;
     await act(() => connect.click());
     expect(navigateMock).toHaveBeenCalledWith("/apps/connect?source=bedrock");
+  });
+
+  it("offers Codex endpoint in the catalog before any account exists", async () => {
+    listGalleryMock.mockResolvedValue({ apps: [getAppStoreDefinition("codex-endpoint")] });
+    listApplicationsMock.mockResolvedValue({ applications: [] });
+    listConnectionsMock.mockResolvedValue({ connections: [] });
+    await renderBrowse();
+    await search("Codex");
+    const row = container.querySelector('[data-app-slug="codex-endpoint"]')!;
+    expect(row).not.toBeNull();
+    const connect = [...row.querySelectorAll("button")].find(button => button.textContent?.includes("Connect"))!;
+    await act(() => connect.click());
+    expect(navigateMock).toHaveBeenCalledWith("/apps/connect?source=codex-endpoint");
+  });
+
+  it("keeps a Codex account saved by 2026.1106.4 under its own catalog card", async () => {
+    listGalleryMock.mockResolvedValue({ apps: ["codex-endpoint", "responses-api"].map(slug => getAppStoreDefinition(slug)) });
+    listApplicationsMock.mockResolvedValue({ applications: [application({ id: "old-responses", name: "Responses API", applicationKey: "app-gallery:responses-api", metadata: { sourceTemplateKey: "responses-api" } })] });
+    listConnectionsMock.mockResolvedValue({ connections: [connection({
+      id: "private-codex", name: "My private Codex", applicationId: "old-responses", connectionPurpose: "ai",
+      config: { sourceTemplateKey: "responses-api", ai: { provider: "openai", method: "api_key", routing: { kind: "gateway", protocol: "codex", auth: "bearer", baseUrl: "http://10.0.1.1:2455/backend-api/codex", models: [] } } },
+    })] });
+    await renderBrowse();
+    expect(container.querySelector('[data-app-slug="codex-endpoint"]')?.textContent).toContain("My private Codex");
+    expect(container.querySelector('[data-app-slug="responses-api"]')?.textContent).not.toContain("My private Codex");
   });
 
   it("offers assistant setup from Connections without choosing an agent", async () => {
