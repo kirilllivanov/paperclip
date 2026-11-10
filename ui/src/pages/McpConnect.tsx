@@ -11,6 +11,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { CompanyPatternIcon } from "@/components/CompanyPatternIcon";
 import { api } from "../api/client";
+import { publicMcpApi } from "@/api/publicMcp";
+import { AssistantConnectionUnavailable, isAssistantConnectionUnavailable } from "./apps/assistant-connection-unavailable";
 
 // Bundle known-origin icons so opening consent never contacts a client-selected site.
 // Client-supplied names never select branding.
@@ -152,26 +154,29 @@ function McpConnectRequest({ id, device = false, agentPairingOnly = false, onEdi
 
 export function AssistantConnectionsPage() {
   const client = useQueryClient();
-  const connections = useQuery({ queryKey: ["mcp-connections"], queryFn: () => api.get<McpConnection[]>("/mcp/connections"), retry: false });
+  const connections = useQuery({ queryKey: ["mcp-connections"], queryFn: publicMcpApi.connections, retry: false });
+  const unavailable = isAssistantConnectionUnavailable(connections.error);
   const active = connections.data?.filter(connection => !connection.revokedAt);
-  const revoke = useMutation({ mutationFn: (id: string) => api.delete(`/mcp/connections/${id}`), onSuccess: (_, id) => {
+  const revoke = useMutation({ mutationFn: publicMcpApi.revoke, onSuccess: (_, id) => {
     client.setQueryData<McpConnection[]>(["mcp-connections"], rows => rows?.filter(row => row.id !== id));
     return client.invalidateQueries({ queryKey: ["mcp-connections"] });
   } });
   return <div className="mx-auto max-w-xl space-y-4 py-10">
     <h1 className="text-xl font-semibold">Assistant connections</h1>
-    <p className="text-sm text-muted-foreground">Revoking a connection stops its future tool calls. Work already delegated continues under your organization’s normal controls.</p>
-    {connections.isPending && <p className="text-sm">Loading connections…</p>}
-    {(connections.error || revoke.error) && <p className="text-sm text-destructive">{(connections.error ?? revoke.error)?.message}</p>}
-    {active?.length === 0 && <p className="text-sm">No assistant connections.</p>}
-    {active?.map((connection) => <Card key={connection.id} className="block space-y-2 p-4">
-      <h2 className="font-medium"><Identity name={assistantConnectionDisplayName(connection)} avatarUrl={connection.user?.image} initials={deriveInitials(connection.user?.name ?? "You")} /></h2>
-      <p className="text-sm text-muted-foreground">Organization: {connection.companyName}</p>
-      {connection.agent && <p className="text-sm">Works as <Link className="underline" to={`/${connection.companyPrefix ?? connection.companyId}/agents/${connection.agent.id}/runtime`}>{connection.agent.name}</Link>{connection.user ? ` · Authorized by ${connection.user.name}` : ""}</p>}
-      <p className="text-sm">{connection.scopes.includes("paperclip:agent") ? "Agent connection" : connection.scopes.includes("paperclip:write") ? "Read and edit work" : "Read only"}</p>
-      {connection.scopes.includes("paperclip:configure") && <p className="text-sm">Configure agents, projects and skills</p>}
-      <Button variant="outline" disabled={revoke.isPending} onClick={() => revoke.mutate(connection.id)}>Revoke connection</Button>
-    </Card>)}
+    {unavailable ? <AssistantConnectionUnavailable /> : <>
+      <p className="text-sm text-muted-foreground">Revoking a connection stops its future tool calls. Work already delegated continues under your organization’s normal controls.</p>
+      {connections.isPending && <p className="text-sm">Loading connections…</p>}
+      {(connections.error || revoke.error) && <p className="text-sm text-destructive">{(connections.error ?? revoke.error)?.message}</p>}
+      {active?.length === 0 && <p className="text-sm">No assistant connections.</p>}
+      {active?.map((connection) => <Card key={connection.id} className="block space-y-2 p-4">
+        <h2 className="font-medium"><Identity name={assistantConnectionDisplayName(connection)} avatarUrl={connection.user?.image} initials={deriveInitials(connection.user?.name ?? "You")} /></h2>
+        <p className="text-sm text-muted-foreground">Organization: {connection.companyName}</p>
+        {connection.agent && <p className="text-sm">Works as <Link className="underline" to={`/${connection.companyPrefix ?? connection.companyId}/agents/${connection.agent.id}/runtime`}>{connection.agent.name}</Link>{connection.user ? ` · Authorized by ${connection.user.name}` : ""}</p>}
+        <p className="text-sm">{connection.scopes.includes("paperclip:agent") ? "Agent connection" : connection.scopes.includes("paperclip:write") ? "Read and edit work" : "Read only"}</p>
+        {connection.scopes.includes("paperclip:configure") && <p className="text-sm">Configure agents, projects and skills</p>}
+        <Button variant="outline" disabled={revoke.isPending} onClick={() => revoke.mutate(connection.id)}>Revoke connection</Button>
+      </Card>)}
+    </>}
     <Link className="text-sm underline" to="/">Back to Paperclip</Link>
   </div>;
 }

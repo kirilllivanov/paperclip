@@ -4,6 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AssistantConnection, AssistantConnectionCard } from "./AssistantConnection";
+import { ApiError } from "@/api/client";
+import { AssistantConnectionsPage } from "../McpConnect";
 const mocks = vi.hoisted(() => ({ setup: vi.fn(), connections: vi.fn(), revoke: vi.fn(), breadcrumbs: vi.fn(), copy: vi.fn() }));
 vi.mock("@/hooks/usePrefersReducedMotion", () => ({ usePrefersReducedMotion: () => true }));
 vi.mock("@/lib/clipboard", () => ({ copyTextToClipboard: mocks.copy }));
@@ -28,6 +30,115 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); vi.clearAllMocks(); });
 describe("assistant setup from Connections", () => {
+  it("explains unavailable public MCP in the catalog without a retry or empty connection state", async () => {
+    mocks.connections.mockRejectedValue(new ApiError("Not found", 404, null));
+    await render(<AssistantConnectionCard onNavigate={vi.fn()} />);
+    expect(container.textContent).toContain("public HTTPS URL");
+    expect(container.textContent).toContain("localhost/loopback");
+    expect(container.querySelector('a[href*="doc/public-mcp.md"]')).not.toBeNull();
+    expect(container.textContent).not.toContain("Try again");
+    expect(container.textContent).not.toContain("Couldn’t load");
+    expect(container.querySelector("[data-connected]")).toBeNull();
+    expect(mocks.connections).toHaveBeenCalledTimes(1);
+  });
+  it.each(["setup", "connections"] as const)("shows deployment guidance when the %s endpoint is missing", async endpoint => {
+    mocks[endpoint].mockRejectedValue(new ApiError("Not found", 404, null));
+    await render();
+    expect(container.textContent).toContain("public HTTPS URL");
+    expect(container.querySelector('a[href*="doc/public-mcp.md"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Copy invitation"]')).toBeNull();
+    expect(container.querySelector("details")).toBeNull();
+    expect(container.textContent).not.toContain("Try again");
+    expect(container.textContent).not.toContain("Refresh");
+    if (endpoint === "connections") expect(container.textContent).not.toContain("No assistants connected");
+    expect(container.textContent).not.toContain("Couldn’t load");
+  });
+  it("explains unavailable public MCP on the account-wide management page", async () => {
+    mocks.connections.mockRejectedValue(new ApiError("Not found", 404, null));
+    await render(<AssistantConnectionsPage />);
+    expect(container.textContent).toContain("public HTTPS URL");
+    expect(container.querySelector('a[href*="doc/public-mcp.md"]')).not.toBeNull();
+    expect(container.textContent).not.toContain("Not found");
+    expect(container.textContent).not.toContain("No assistant connections");
+    expect(container.textContent).not.toContain("Try again");
+  });
+  it("stops polling after the connections endpoint returns 404", async () => {
+    mocks.connections.mockRejectedValue(new ApiError("Not found", 404, null));
+    vi.useFakeTimers();
+    try {
+      await act(async () => root.render(<QueryClientProvider client={client}><AssistantConnection /></QueryClientProvider>));
+      await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+      expect(container.textContent).toContain("public HTTPS URL");
+      expect(mocks.connections).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(mocks.connections).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
+  });
+  it("keeps existing connections revocable when only the setup endpoint is missing", async () => {
+    mocks.setup.mockRejectedValue(new ApiError("Not found", 404, null));
+    mocks.connections.mockResolvedValue([grant]);
+    await render();
+    expect(container.textContent).toContain("public HTTPS URL");
+    expect(container.querySelector('[aria-label="Copy invitation"]')).toBeNull();
+    const revoke = container.querySelector<HTMLButtonElement>('[aria-label="Revoke Dotta’s OpenCode connection"]');
+    expect(revoke).not.toBeNull();
+    mocks.connections.mockResolvedValue([]);
+    await act(async () => revoke!.click());
+    await flush();
+    expect(mocks.revoke).toHaveBeenCalledWith(grant.id, expect.anything());
+    expect(container.querySelector('[aria-label="Revoke Dotta’s OpenCode connection"]')).toBeNull();
+  });
+  it("stops polling on a setup 404 after success and resumes when setup recovers", async () => {
+    mocks.connections.mockResolvedValue([grant]);
+    vi.useFakeTimers();
+    try {
+      await act(async () => root.render(<QueryClientProvider client={client}><AssistantConnection /></QueryClientProvider>));
+      await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+      expect(mocks.connections).toHaveBeenCalledTimes(1);
+      mocks.setup.mockRejectedValue(new ApiError("Not found", 404, null));
+      await act(async () => { await client.refetchQueries({ queryKey: ["mcp-setup"] }); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+      expect(container.textContent).toContain("public HTTPS URL");
+      expect(container.querySelector('[aria-label="Copy invitation"]')).toBeNull();
+      expect(container.querySelector('[aria-label="Revoke Dotta’s OpenCode connection"]')).not.toBeNull();
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(mocks.connections).toHaveBeenCalledTimes(1);
+      mocks.setup.mockResolvedValue({ enabled: true, serverUrl: "https://canonical.example/mcp/paperclip" });
+      await act(async () => { await client.refetchQueries({ queryKey: ["mcp-setup"] }); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+      expect(container.textContent).not.toContain("public HTTPS URL");
+      expect(container.querySelector('[aria-label="Copy invitation"]')).not.toBeNull();
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+      expect(mocks.connections).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
+  });
+  it("does not treat a missing grant during revocation as unavailable public MCP", async () => {
+    mocks.connections.mockResolvedValue([grant]);
+    mocks.revoke.mockRejectedValueOnce(new ApiError("Not found", 404, null));
+    await render();
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Revoke Dotta’s OpenCode connection"]')!.click());
+    await flush();
+    expect(container.textContent).toContain("Couldn’t revoke this connection");
+    expect(container.textContent).not.toContain("public HTTPS URL");
+    expect(container.querySelector('[aria-label="Revoke Dotta’s OpenCode connection"]')).not.toBeNull();
+  });
+  it.each([401, 403, 500])("keeps HTTP %s failures distinct from unavailable public MCP", async status => {
+    mocks.connections.mockRejectedValue(new ApiError("Request failed", status, null));
+    await render(<AssistantConnectionCard onNavigate={vi.fn()} />);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Couldn’t load your connection status");
+    expect(container.textContent).toContain("Try again");
+    expect(container.textContent).not.toContain("public HTTPS URL");
+    await render(<AssistantConnectionsPage />);
+    expect(container.textContent).toContain("Request failed");
+    expect(container.textContent).not.toContain("public HTTPS URL");
+  });
+  it("preserves sign-in guidance and retry for setup authorization errors", async () => {
+    mocks.setup.mockRejectedValue(new ApiError("Unauthorized", 401, null));
+    await render();
+    expect(container.textContent).toContain("Sign in to connect an assistant");
+    expect(container.textContent).toContain("Try again");
+    expect(container.textContent).not.toContain("public HTTPS URL");
+  });
   it("copies a scoped instruction link with no credential and keeps manual configuration collapsed", async () => {
     await render();
     expect(container.querySelector("details")?.open).toBe(false);
