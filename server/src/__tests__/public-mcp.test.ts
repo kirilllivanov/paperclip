@@ -47,6 +47,30 @@ const verifier = randomBytes(32).toString("base64url");
 const challenge = createHash("sha256").update(verifier).digest("base64url");
 
 describe("public MCP configuration", () => {
+  it.each([undefined, "", "false", "1", "TRUE"])("rejects non-loopback HTTP without explicit true (%s)", (flag) => {
+    expect(() => publicMcpConfig({ PAPERCLIP_PUBLIC_URL: "http://paperclip.internal:3100", PAPERCLIP_MCP_ALLOW_INSECURE_HTTP: flag })).toThrow();
+    expect(() => publicMcpConfig({ PAPERCLIP_PUBLIC_URL: "https://paperclip.example", PAPERCLIP_MCP_AUTHORIZATION_ORIGIN: "http://auth.internal:3100", PAPERCLIP_MCP_ALLOW_INSECURE_HTTP: flag })).toThrow();
+  });
+
+  it("allows explicit HTTP public and authorization origins, including the auth URL fallback", () => {
+    const env = { PAPERCLIP_MCP_ALLOW_INSECURE_HTTP: "true" };
+    expect(publicMcpConfig({ ...env, PAPERCLIP_PUBLIC_URL: "http://paperclip.internal:3100", PAPERCLIP_MCP_AUTHORIZATION_ORIGIN: "http://auth.internal:3100" })).toEqual({
+      origin: "http://paperclip.internal:3100", resource: "http://paperclip.internal:3100/mcp/paperclip", authorizationOrigin: "http://auth.internal:3100",
+    });
+    expect(publicMcpConfig(env, "http://192.168.1.5:3100")?.resource).toBe("http://192.168.1.5:3100/mcp/paperclip");
+    expect(publicMcpConfig(env)).toBeNull();
+  });
+
+  it.each(["ftp://paperclip.internal", "file:///", "http://user:pass@paperclip.internal", "http://paperclip.internal/path", "http://paperclip.internal/?query=1", "http://paperclip.internal/#fragment"])("keeps origin validation with HTTP enabled (%s)", (origin) => {
+    const env = { PAPERCLIP_MCP_ALLOW_INSECURE_HTTP: "true" };
+    expect(() => publicMcpConfig({ ...env, PAPERCLIP_PUBLIC_URL: origin })).toThrow();
+    expect(() => publicMcpConfig({ ...env, PAPERCLIP_PUBLIC_URL: "https://paperclip.example", PAPERCLIP_MCP_AUTHORIZATION_ORIGIN: origin })).toThrow();
+  });
+
+  it.each(["localhost", "127.0.0.1", "[::1]"])("preserves loopback HTTP without the opt-in (%s)", (host) => {
+    expect(publicMcpConfig({ PAPERCLIP_PUBLIC_URL: `http://${host}:3100` })?.origin).toBe(`http://${host}:3100`);
+  });
+
   it("uses the configured origin independently of the retired environment gate", () => {
     expect(publicMcpConfig({})).toBeNull();
     expect(() => publicMcpConfig({ PAPERCLIP_PUBLIC_URL: "http://example.com" })).toThrow();
@@ -126,6 +150,52 @@ describe.skipIf(!support.supported)("public MCP OAuth and tool boundary", () => 
     const tokens = await oauth.token(exchange);
     return { actor, company: company!, membership: membership!, client, tokens, exchange };
   }
+
+  it("serves opted-in HTTP discovery and local-client OAuth while preserving access boundaries", async () => {
+    const f = await fixture();
+    const httpConfig = publicMcpConfig({ PAPERCLIP_PUBLIC_URL: "http://paperclip.internal:3100", PAPERCLIP_MCP_ALLOW_INSECURE_HTTP: "true" })!;
+    const httpOAuth = createPublicMcpOAuth(db, httpConfig);
+    const execute = createPublicMcpExecutor(db, httpOAuth, vi.fn());
+    const app = express(); app.use(express.json());
+    app.use(publicMcpIngressRoutes(httpOAuth, execute));
+    const discovery = await request(app).get("/.well-known/oauth-authorization-server");
+    expect(discovery.status).toBe(200);
+    expect(discovery.body).toMatchObject({ issuer: httpConfig.origin, authorization_endpoint: httpConfig.origin + "/mcp/oauth/authorize", token_endpoint: httpConfig.origin + "/mcp/oauth/token" });
+    const metadata = await request(app).get("/.well-known/oauth-protected-resource/mcp/paperclip");
+    expect(metadata.status).toBe(200);
+    expect(metadata.body).toMatchObject({ resource: httpConfig.resource, authorization_servers: [httpConfig.origin] });
+    expect((await request(app).post("/mcp/paperclip").send({})).status).toBe(401);
+
+    // Opting the server into HTTP does not permit arbitrary HTTP callbacks.
+    expect((await request(app).post("/mcp/oauth/register").send({ client_name: "Unsafe callback", redirect_uris: ["http://client.internal/callback"] })).status).toBe(400);
+    const callback = "http://127.0.0.1:55023/callback";
+    const client = await request(app).post("/mcp/oauth/register").send({ client_name: "Local HTTP client", redirect_uris: [callback] });
+    expect(client.status).toBe(201);
+    const authorization = await request(app).get("/mcp/oauth/authorize").query({ client_id: client.body.client_id, redirect_uri: callback, resource: httpConfig.resource, scope: "paperclip:read", state: "local-client-state", response_type: "code", code_challenge: challenge, code_challenge_method: "S256" });
+    expect(authorization.status).toBe(303);
+    expect(authorization.headers.location).toContain(httpConfig.origin + "/mcp-connect/");
+    const id = new URL(authorization.headers.location).pathname.split("/").at(-1)!;
+    await expect(httpOAuth.consent(id, { type: "none" }, { decision: "approve", companyId: f.company.id, allowWrites: false })).rejects.toMatchObject({ status: 401 });
+    const consent = await httpOAuth.consent(id, f.actor, { decision: "approve", companyId: f.company.id, allowWrites: false });
+    const redirect = new URL(consent.redirectUrl);
+    expect(redirect.origin + redirect.pathname).toBe(callback);
+    expect(redirect.searchParams.get("state")).toBe("local-client-state");
+    expect(redirect.searchParams.get("iss")).toBe(httpConfig.origin);
+    const exchange = { grant_type: "authorization_code", client_id: client.body.client_id, redirect_uri: callback, resource: httpConfig.resource, code: redirect.searchParams.get("code"), code_verifier: verifier };
+    for (const invalid of [{ code_verifier: randomBytes(32).toString("base64url") }, { resource: config.resource }, { redirect_uri: "http://127.0.0.1:55024/callback" }]) {
+      expect((await request(app).post("/mcp/oauth/token").send({ ...exchange, ...invalid })).status).toBe(400);
+    }
+    const tokens = await request(app).post("/mcp/oauth/token").send(exchange);
+    expect(tokens.status).toBe(200);
+    const principal = await httpOAuth.authenticate(tokens.body.access_token);
+    expect(principal.grant.companyId).toBe(f.company.id);
+    expect(principal.actor.userId).toBe(f.actor.userId);
+    const identity = await execute(tokens.body.access_token, "paperclip_connection", {});
+    expect(identity.companyId).toBe(f.company.id);
+    expect((await request(app).post("/mcp/paperclip").set("Authorization", `Bearer ${tokens.body.access_token}`).set("Origin", "http://other.internal").send({})).status).toBe(403);
+    await httpOAuth.revokeConnection(principal.grant.id, f.actor.userId!);
+    await expect(httpOAuth.authenticate(tokens.body.access_token)).rejects.toThrow();
+  });
 
   it("returns only the authorizing person’s profile with their connection list", async () => {
     const f = await fixture();

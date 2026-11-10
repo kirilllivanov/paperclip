@@ -36,12 +36,13 @@ const invalidGrant = () => new McpOAuthError("invalid_grant", "Authorization is 
 export function publicMcpConfig(env: NodeJS.ProcessEnv = process.env, authPublicBaseUrl?: string) {
   const origin = env.PAPERCLIP_PUBLIC_URL ?? authPublicBaseUrl;
   if (!origin) return null;
+  const allowInsecureHttp = env.PAPERCLIP_MCP_ALLOW_INSECURE_HTTP === "true";
   const normalizeOrigin = (value: string, setting: string) => {
     const url = new URL(value);
     const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-    if ((url.protocol !== "https:" && !(url.protocol === "http:" && loopback))
+    if ((url.protocol !== "https:" && !(url.protocol === "http:" && (loopback || allowInsecureHttp)))
       || url.username || url.password || url.search || url.hash || url.pathname !== "/") {
-      throw new Error(`Public MCP requires ${setting} to be an HTTPS origin (HTTP loopback is allowed for development).`);
+      throw new Error(`Public MCP requires ${setting} to be an origin without credentials, path, query or fragment, using HTTPS (HTTP loopback is allowed; other HTTP requires PAPERCLIP_MCP_ALLOW_INSECURE_HTTP=true).`);
     }
     return url.origin;
   };
