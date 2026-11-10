@@ -4,6 +4,17 @@ Product map: [Runs, harnesses, and model accounts](../feature-map/runs-adapters.
 
 Feature ID: `runs-adapters`.
 
+Native Codex custom endpoints use existing AI connection grants, company scope,
+installation and credential ownership checks. The Apps / Connectors card is
+Codex endpoint; grouping derives from routing metadata. Complete Codex settings
+and fixed runtime authentication/WebSocket flags are required. Token and custom headers share an encrypted vault
+slot; connection metadata and summaries contain no header
+values. Only Paperclip Runner → Codex is compatible. Generated header variables
+cross only explicit provider launch allowlists in TypeScript and Rust and are
+excluded from task shell projections. Provider diagnostics mask selected bearer
+and header values, including RPC errors, warnings and failed-turn notifications. See
+[AI connections](../../doc/connections/AI-CONNECTIONS.md#custom-codex-backend-fork).
+
 Review date: 2026-10-12. Source commit: `58e16dbddfc9c8d0cf60867f9d9847f0feda055b`.
 Native REST transport reconciled in this change; see the
 [shared transport contract](README.md#native-rest-transport).
@@ -113,6 +124,16 @@ remaining operations before qualifying the whole capability.
 
 Gaps: Environment test path checks creation/configuration policy; missing provider auth
 must use its owner setup flow.
+
+Scoped custom Codex catalog discovery uses
+`GET /api/companies/{companyId}/adapters/paperclip_runner/models` with
+`provider=codex` and the selected AI connection binding. It requires company
+access plus agent-update authority for a saved agent, or agent-creation authority
+for setup. Credential selection retains the normal human audience, agent-install,
+grant, and company checks. This metadata probe starts no inference turn and is
+limited to local execution environments; remote and managed execution cannot
+fall back to the control-plane host. Controlled route and native app-server
+fixtures verify these boundaries; a permitted live agent journey remains `not-run`.
 
 Scoped source-only Claude CLI preparation: both the selected environment test
 and normal CLI execution use

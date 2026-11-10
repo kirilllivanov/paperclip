@@ -130,6 +130,8 @@ const mockSelectAiConnection = vi.hoisted(() => vi.fn(async (_input: unknown) =>
 const mockAiCredential = vi.hoisted(() => vi.fn(async (_selection: unknown) => "synthetic-copilot-token"));
 const mockCopilotModels = vi.hoisted(() => vi.fn(async () => ({ models: [{ id: "gpt-5.6-luna", label: "GPT-5.6 Luna" }], promptSent: false })));
 const mockCopilotProbe = vi.hoisted(() => vi.fn(async () => ({ status: "verified", promptSent: false })));
+const mockCodexModels = vi.hoisted(() => vi.fn(async () => [{ id: "private-codex-model", label: "Private Codex model" }]));
+vi.mock("../services/codex-connection-models.js", () => ({ listCodexConnectionModels: mockCodexModels }));
 vi.mock("../services/copilot-connection-probe.js", async importOriginal => ({
   ...(await importOriginal<object>()), probeCopilotExecutionTarget: mockCopilotProbe, probeCopilotConnection: mockCopilotModels,
 }));
@@ -325,6 +327,49 @@ describe("agent test-environment route", () => {
       binding: { provider: "github", method: "api_key", mode: "responsible_user" }, allowUninstalledShared: false,
     }));
     expect(mockCopilotModels).toHaveBeenCalledExactlyOnceWith(expect.anything(), "company-1", "synthetic-copilot-token", null, undefined, expect.anything());
+  });
+
+  it("discovers models for the selected Codex connection after checking agent edit access", async () => {
+    mockAgentService.getById.mockResolvedValue({ id: "agent-1", companyId: "company-1" });
+    const binding = { provider: "openai", method: "api_key", mode: "delegated", connectionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", grantId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" };
+    const response = await request(await createApp()).get("/api/companies/company-1/adapters/paperclip_runner/models")
+      .query({ provider: "codex", agentId: "agent-1", aiConnection: JSON.stringify(binding) });
+    expect(response.status).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body).toEqual([{ id: "private-codex-model", label: "Private Codex model" }]);
+    expect(mockCodexModels).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ companyId: "company-1", agentId: "agent-1", binding, responsibleUserId: "local-board" }));
+  });
+
+  it.each(["foreign", "denied"])("does not probe a Codex connection for a %s agent", async reason => {
+    mockAgentService.getById.mockResolvedValue({ id: "agent-1", companyId: reason === "foreign" ? "company-2" : "company-1" });
+    if (reason === "denied") {
+      mockAccessService.decide.mockResolvedValue({ allowed: false, explanation: "No update access" });
+      mockAccessService.canUser.mockResolvedValue(false);
+    }
+    const response = await request(await createApp({ source: "session" })).get("/api/companies/company-1/adapters/paperclip_runner/models")
+      .query({ provider: "codex", agentId: "agent-1", aiConnection: JSON.stringify({ provider: "openai", method: "api_key", mode: "responsible_user" }) });
+    expect(response.status).toBe(reason === "foreign" ? 404 : 403);
+    expect(mockCodexModels).not.toHaveBeenCalled();
+  });
+
+  it.each(["saved", "editor", "instance"])("does not discover Codex models on the server for a %s remote environment", async source => {
+    const remoteId = "33333333-3333-4333-8333-333333333333";
+    mockAgentService.getById.mockResolvedValue({ id: "agent-1", companyId: "company-1", ...(source === "saved" ? { defaultEnvironmentId: remoteId } : {}) });
+    mockEnvironmentService.getById.mockResolvedValue({ id: remoteId, driver: "ssh", status: "active" });
+    if (source === "instance") mockInstanceSettingsService.get.mockResolvedValue({ defaultEnvironmentId: remoteId });
+    const response = await request(await createApp()).get("/api/companies/company-1/adapters/paperclip_runner/models")
+      .query({ provider: "codex", agentId: "agent-1", ...(source === "editor" ? { environmentId: remoteId } : {}), aiConnection: JSON.stringify({ provider: "openai", method: "api_key", mode: "responsible_user" }) });
+    expect(response.status).toBe(422);
+    expect(response.body.error).toMatch(/local execution environment/);
+    expect(mockCodexModels).not.toHaveBeenCalled();
+  });
+
+  it("honors an explicit reset of the Codex environment to the instance default", async () => {
+    mockAgentService.getById.mockResolvedValue({ id: "agent-1", companyId: "company-1", defaultEnvironmentId: "remote" });
+    const response = await request(await createApp()).get("/api/companies/company-1/adapters/paperclip_runner/models")
+      .query({ provider: "codex", agentId: "agent-1", environmentId: "", aiConnection: JSON.stringify({ provider: "openai", method: "api_key", mode: "responsible_user" }) });
+    expect(response.status).toBe(200);
+    expect(mockCodexModels).toHaveBeenCalledOnce();
   });
 
   it.each([

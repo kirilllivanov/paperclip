@@ -607,7 +607,7 @@ environment probes and task execution. The settings file contains no credential.
 OpenClaw Gateway, Hermes Gateway, Claude Managed, AWS AgentCore, Process, HTTP,
 and legacy `acpx_local` are excluded: external agents retain their own model
 configuration, and `acpx_local` is retired. Cursor/Copilot custom routing, Pi custom gateways and Bedrock,
-Vertex, ambient AWS identity, arbitrary authentication headers, and automatic
+Vertex, ambient AWS identity, and automatic
 catalog discovery for custom gateways are not part of this implementation.
 
 OpenRouter connections without an explicit model list automatically load its public
@@ -644,6 +644,86 @@ configuration; it is not proof that the model can respond. HTTPS is required for
 remote URLs; loopback endpoints may use HTTP. Localhost refers to the agent’s
 execution environment, including when it is a sandbox. URLs cannot contain user
 credentials, query parameters, or fragments.
+
+### Custom Codex backend (fork)
+
+In **Apps / Connectors**, choose **Codex endpoint**. Agent setup also offers
+**Advanced providers → Codex endpoint** for **Paperclip Runner → Codex**.
+Enter the full backend base URL, e.g. `https://codex.example.com/backend-api/codex`,
+the Bearer token without the `Bearer ` prefix, optional HTTP header pairs, and
+optionally a comma-separated list of model IDs. The runner must be able to reach this address.
+Codex sends streaming Responses requests to `/backend-api/codex/responses`;
+Paperclip does not insert `/v1`. This option requires native Runner Codex.
+
+The token and up to 16 header values cross the explicit provider launch allowlists
+in both TypeScript and Rust. They are excluded from task shell environment
+projections and masked by value in provider diagnostics, RPC errors and failed-turn
+notifications, including when an upstream error repeats credentials without a label.
+
+When the model list is empty, agent configuration asks the installed Codex
+app-server for `model/list`. The provider's `model_catalog_url` is the selected
+base URL plus `/models`; this endpoint must return a native Codex model catalog,
+not an OpenAI `/v1/models` response. Codex owns catalog HTTP requests, token and
+header handling, metadata, and pagination. Paperclip only displays the returned
+model IDs and labels. Discovery runs without starting a thread or inference turn,
+has a 20-second deadline, and cleans up its process and disposable home. Errors
+remain visible rather than substituting the bundled model catalog. Choose an
+actual model ID after discovery; an existing literal `auto` is not a provider
+model unless your backend implements it.
+
+Automatic discovery currently supports local execution environments only.
+For SSH, sandbox, and plugin environments, enter the model IDs explicitly in the
+connection and use **Run test** in that environment. The catalog route respects
+the agent's saved environment, prospective overrides, and the instance default;
+it does not fall back to running Codex on the server for a remote environment.
+Explicit model lists are retained without a discovery request.
+
+**Codex settings** on connection creation controls these native options:
+
+| Option | Default |
+| --- | --- |
+| `web_search` | `live` |
+| `service_tier` | `default` |
+| `supports_standalone_web_search` / `features.standalone_web_search` | `true` |
+
+The generated provider remains `model_provider = "paperclip"`, with
+`name = "openai"` and `wire_api = "responses"`. The custom endpoint always uses
+`requires_openai_auth = false` and `supports_websockets = true`; these are fixed
+in both connection projection and the final runtime config, with no UI controls.
+Runtime configuration requires these fixed values and the complete saved Codex
+settings; incomplete configurations and unsupported overrides are rejected.
+The UI supplies defaults when creating a connection. Paperclip enables
+`features.api_key_model_discovery` for the native catalog. It sets
+`openai_base_url` to exactly the provider's `base_url`, and disables Codex
+analytics and feedback. `openai_base_url` overrides the built-in OpenAI provider;
+it is not a global proxy setting or a guarantee that every Codex service uses
+that address. Provider capability flags require corresponding backend support.
+Reconnect preserves these settings; create another connection to change them.
+
+The isolated runtime home merges this validated provider configuration with
+Paperclip's generated configuration. Assigned skills, the Paperclip MCP policy
+gateway, OpenTelemetry configuration, and disabled shell snapshots retain their
+existing behavior. This connection adds neither native Codex plugins nor an
+independent Developer Docs MCP server. Paperclip remains responsible for assigned
+tools, plugin tools, skills, permissions, and audit.
+
+HTTPS and loopback HTTP are supported. The explicit Codex option also permits
+HTTP on RFC1918 private IPv4 addresses (`10/8`, `172.16/12`, `192.168/16`).
+HTTP sends credentials unencrypted over that trusted network. Public HTTP and
+credentials, queries or fragments in URLs remain rejected.
+
+The existing encrypted vault slot holds the token and up to 16 custom headers
+together. Connection metadata and lists contain no header values. Native Codex
+receives values through bounded `env_http_headers` bindings excluded from task
+shell environments; shell snapshots remain disabled. Header names must be unique
+ignoring case. Authorization uses the Bearer field; transport framing headers
+cannot be overridden. Reconnect replaces token and all headers together while
+retaining destination and grants; enter all required headers again.
+
+Saving records configuration. Use **Run test** in the execution environment to
+verify the actual backend and model. The controlled pinned app-server test proves
+the outgoing URL, Authorization, custom headers and streaming body against a
+rejecting fixture; it does not prove a live response from a particular proxy.
 
 Managed Grok uses a disposable runtime home. Paperclip does not retain or restore
 Grok transcript files into host temporary directories: private file modes do not

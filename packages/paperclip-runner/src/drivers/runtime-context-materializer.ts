@@ -1,5 +1,6 @@
 import { isOpenRouterUrl, openRouterCodexHeaders } from "./openrouter-attribution.js";
 import { randomUUID } from "node:crypto";
+import { CODEX_HEADER_ENV_KEYS, isCodexHeaderName, isPrivateEndpointHost } from "./codex-endpoint.js";
 import { constants } from "node:fs";
 import {
   chmod,
@@ -13,8 +14,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { parse as parseToml } from "smol-toml";
-import { codexObservabilityToml } from "./agent-observability.js";
+import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
 import type { NativeRuntimeContextSnapshot } from "../contracts/runtime-context.js";
 import type { NativeMcpLaunchBinding } from "./native-mcp.js";
@@ -310,13 +310,13 @@ async function readSourceCodexAuth(sourceAuth: string): Promise<Buffer | null> {
 }
 
 /** Copy only Paperclip's value-free provider projection, never host tools or hooks. */
-async function managedCodexProviderConfig(sourceHome?: string | null): Promise<string> {
-  if (!sourceHome?.trim()) return "";
+async function managedCodexProviderConfig(sourceHome?: string | null): Promise<Record<string, unknown>> {
+  if (!sourceHome?.trim()) return {};
   const source = await readSourceCodexAuth(join(sourceHome, "config.toml"));
-  if (!source) return "";
+  if (!source) return {};
   let parsed;
-  try { parsed = parseToml(source.toString("utf8")); } catch { return ""; }
-  if (parsed.model_provider !== "paperclip") return "";
+  try { parsed = parseToml(source.toString("utf8")); } catch { return {}; }
+  if (parsed.model_provider !== "paperclip") return {};
   const providers = parsed.model_providers as Record<string, unknown> | undefined;
   const provider = providers?.paperclip as Record<string, unknown> | undefined;
   if (!provider || typeof provider.base_url !== "string" || provider.wire_api !== "responses"
@@ -326,10 +326,58 @@ async function managedCodexProviderConfig(sourceHome?: string | null): Promise<s
   }
   const url = new URL(provider.base_url);
   if (url.username || url.password || url.search || url.hash
-    || (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))) {
+    || (url.protocol !== "https:" && !(url.protocol === "http:" && (["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || isPrivateEndpointHost(url.hostname))))) {
     throw new Error("Invalid managed Codex provider URL");
   }
-  return `model_provider = "paperclip"\n[model_providers.paperclip]\nname = "Paperclip connection"\nbase_url = ${JSON.stringify(provider.base_url)}\nwire_api = "responses"\nrequires_openai_auth = false\n${provider.env_key ? 'env_key = "PAPERCLIP_AI_PROVIDER_KEY"\n' : ""}${isOpenRouterUrl(provider.base_url) ? openRouterCodexHeaders() : ""}`;
+  const headerBindings: Record<string, string> = {};
+  if (provider.env_http_headers !== undefined) {
+    const headers = provider.env_http_headers;
+    if (!headers || typeof headers !== "object" || Array.isArray(headers)
+      || Object.keys(headers).length > CODEX_HEADER_ENV_KEYS.length) {
+      throw new Error("Invalid managed Codex header bindings");
+    }
+    const names = new Set<string>();
+    for (const [name, key] of Object.entries(headers)) {
+      if (!isCodexHeaderName(name) || names.has(name.toLowerCase())
+        || typeof key !== "string" || !CODEX_HEADER_ENV_KEYS.includes(key)) {
+        throw new Error("Invalid managed Codex header bindings");
+      }
+      names.add(name.toLowerCase());
+      headerBindings[name] = key;
+    }
+  }
+  const target: Record<string, unknown> = {
+    name: "Paperclip connection",
+    base_url: provider.base_url,
+    wire_api: "responses",
+    requires_openai_auth: false,
+    ...(provider.env_key ? { env_key: "PAPERCLIP_AI_PROVIDER_KEY" } : {}),
+    ...(Object.keys(headerBindings).length ? { env_http_headers: headerBindings } : {}),
+    ...(isOpenRouterUrl(provider.base_url) ? parseToml(openRouterCodexHeaders()) : {}),
+  };
+  const result: Record<string, unknown> = { model_provider: "paperclip", model_providers: { paperclip: target } };
+  if (provider.name === "openai") {
+    if (provider.supports_websockets !== true) throw new Error("Invalid managed Codex WebSocket capability");
+    target.name = "openai";
+    target.supports_websockets = true;
+    // Derive both URLs from the validated endpoint, never accept an alternate destination.
+    result.openai_base_url = provider.base_url;
+    target.model_catalog_url = `${provider.base_url.replace(/\/+$/, "")}/models`;
+    for (const key of ["supports_standalone_web_search"] as const) {
+      if (typeof provider[key] !== "boolean") throw new Error("Invalid managed Codex capabilities");
+      target[key] = provider[key];
+    }
+    if (!["disabled", "cached", "live"].includes(String(parsed.web_search))) throw new Error("Invalid managed Codex web search mode");
+    if (typeof parsed.service_tier !== "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(parsed.service_tier)) throw new Error("Invalid managed Codex service tier");
+    result.web_search = parsed.web_search;
+    result.service_tier = parsed.service_tier;
+    result.analytics = { enabled: false };
+    result.feedback = { enabled: false };
+    const features = parsed.features as Record<string, unknown> | undefined;
+    if (typeof features?.standalone_web_search !== "boolean") throw new Error("Invalid managed Codex feature flag");
+    result.features = { api_key_model_discovery: true, standalone_web_search: features.standalone_web_search };
+  }
+  return result;
 }
 
 export async function prepareIsolatedCodexHome(input: {
@@ -351,35 +399,33 @@ export async function prepareIsolatedCodexHome(input: {
   await chmod(input.codexHome, 0o700);
   const temporaryConfig = join(input.codexHome, `.config-${randomUUID()}.tmp`);
   try {
-    await writeFile(temporaryConfig, [
-      providerConfig,
-      codexObservabilityToml(input.observability?.otelConfig),
+    await writeFile(temporaryConfig, stringifyToml({
+      ...providerConfig,
+      ...(input.observability?.otelConfig ? { otel: input.observability.otelConfig } : {}),
       // Codex shell snapshots serialize the provider process environment. The
       // native runner injects short-lived provider and MCP bindings, so a
       // snapshot would turn ephemeral credentials into durable session state.
-      "[features]",
-      "shell_snapshot = false",
-      "",
-      ...(input.nativeMcp
-        ? [
-            `[mcp_servers.${JSON.stringify(input.nativeMcp.name)}]`,
-            `url = ${JSON.stringify(input.nativeMcp.url)}`,
+      features: { ...(providerConfig.features as Record<string, boolean> | undefined), shell_snapshot: false },
+      mcp_servers: {
+        ...(input.nativeMcp
+          ? { [input.nativeMcp.name]: {
+            url: input.nativeMcp.url,
             // This endpoint is Paperclip's authenticated policy gateway, not an
             // upstream server. It enforces connection grants and human approvals
             // for every operation; the provider must deliver calls to that gate.
-            'default_tools_approval_mode = "approve"',
-            `http_headers = { Authorization = ${JSON.stringify(`Bearer ${input.nativeMcp.token}`)} }`,
-            "",
-          ]
-        : []),
-    ].join("\n"), { mode: 0o600, flag: "wx" });
+            default_tools_approval_mode: "approve",
+            http_headers: { Authorization: `Bearer ${input.nativeMcp.token}` },
+          } }
+          : {}),
+      },
+    }), { mode: 0o600, flag: "wx" });
     await rename(temporaryConfig, configPath);
     await chmod(configPath, 0o600);
   } finally { await rm(temporaryConfig, { force: true }); }
 
   const targetAuth = join(input.codexHome, "auth.json");
   await rm(targetAuth, { force: true });
-  if (providerConfig) return;
+  if (Object.keys(providerConfig).length) return;
   const apiKey = input.apiKey?.trim();
   if (apiKey) {
     // The pinned Codex app-server authenticates API-key automation through its

@@ -74,6 +74,31 @@ beforeAll(async () => {
 afterAll(async () => { await database?.cleanup(); vi.unstubAllEnvs(); if (home) await rm(home, { recursive: true, force: true }); });
 
 describe("managed AI connections", () => {
+  it("vaults Codex endpoint token and headers, rotates them together and excludes Legacy", async () => {
+    const routing = { kind: "gateway", protocol: "codex", auth: "bearer", baseUrl: "https://codex.example.com/backend-api/codex", models: [],
+      codex: { webSearch: "live", serviceTier: "default", standaloneWebSearch: true } } as const;
+    const setup = { provider: "openai", method: "api_key", ownership: "personal", name: "Private Codex", allAgents: true, agentIds: [], routing: { ...routing, models: [] }, httpHeaders: [{ name: "X-Custom", value: "private-header-one" }] } as const;
+    const saved = await service.save(companyId, "alice", { ...setup, agentIds: [], httpHeaders: [...setup.httpHeaders] }, "private-token-one");
+    const selected = { provider: "openai", method: "api_key", mode: "delegated", ...saved } as const;
+    const run = { companyId, agentId, adapterType: "paperclip_runner", responsibleUserId: "alice", binding: selected, config: { provider: "codex", model: "gpt-5.4" } };
+    const runtime = await prepareManagedAiRuntime(db, run);
+    try {
+      expect(runtime!.config.env).toMatchObject({ PAPERCLIP_AI_PROVIDER_KEY: "private-token-one", PAPERCLIP_CODEX_HEADER_SECRET_0: "private-header-one" });
+      const config = await readFile(path.join(runtime!.home!, "provider/config.toml"), "utf8");
+      expect(config).toContain('base_url = "https://codex.example.com/backend-api/codex"');
+      expect(config).not.toMatch(/private-token|private-header/);
+      const [connection] = await db.select().from(toolConnections).where(eq(toolConnections.id, saved.connectionId));
+      expect(JSON.stringify(connection)).not.toMatch(/private-token|private-header/);
+      expect(JSON.stringify(await service.list(companyId, "alice"))).not.toMatch(/private-token|private-header/);
+      await expect(prepareManagedAiRuntime(db, { ...run, responsibleUserId: "bob" })).rejects.toThrow();
+      await expect(prepareManagedAiRuntime(db, { ...run, adapterType: "codex_local", config: {} })).rejects.toThrow();
+      expect(await service.probeUsage(companyId, "alice", saved.connectionId)).toMatchObject({ status: "unsupported" });
+    } finally { await runtime?.cleanup(); }
+    await service.save(companyId, "alice", { ...setup, agentIds: [], httpHeaders: [{ name: "X-Custom", value: "private-header-two" }], connectionId: saved.connectionId }, "private-token-two");
+    const rotated = await prepareManagedAiRuntime(db, run);
+    try { expect(rotated!.config.env).toMatchObject({ PAPERCLIP_AI_PROVIDER_KEY: "private-token-two", PAPERCLIP_CODEX_HEADER_SECRET_0: "private-header-two" }); }
+    finally { await rotated?.cleanup(); }
+  });
   it.each([
     { provider: "openrouter", envKey: "OPENROUTER_API_KEY", routed: false },
     { provider: "openrouter", envKey: "OPENROUTER_API_KEY", routed: true },

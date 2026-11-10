@@ -9,6 +9,25 @@ import { AiConnectionField, aiProviderForAdapter } from "./AiConnectionField";
 import type { AiConnectionCredentialStep } from "./AiConnectionCredentialStep";
 
 const mocks = vi.hoisted(() => ({ list: vi.fn(), setDefault: vi.fn() }));
+it.each([true, false])("keeps a custom Codex endpoint selectable only on native Codex (native=%s)", async native => {
+  const saved = account({ provider: "openai", method: "api_key", name: "Private Codex", status: "connected",
+    routing: { kind: "gateway", protocol: "codex", auth: "bearer", baseUrl: "https://codex.example.com/backend-api/codex", models: [],
+      codex: { webSearch: "live", serviceTier: "default", standaloneWebSearch: true } } });
+  mocks.list.mockResolvedValue({ currentUserId: "owner", connections: [saved], canManageConnections: true });
+  flushSync(() => root.render(<QueryClientProvider client={client}>
+    <AiConnectionField companyId="company" agentId="agent" agentName="Codex" adapterType="codex_local" runnerProvider={native ? "codex" : undefined}
+      value={{ provider: "openai", method: "api_key", mode: "delegated", connectionId: saved.id, grantId: saved.grantId }} onChange={onChange} />
+  </QueryClientProvider>));
+  await settle();
+  expect(container.textContent?.includes("does not support the selected harness")).toBe(!native);
+  const trigger = container.querySelector('[role="combobox"][aria-label="Connection"]')!;
+  flushSync(() => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+  await settle();
+  const choice = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(node => node.textContent?.includes("Private Codex"));
+  expect(choice).toBeDefined();
+  expect(choice?.getAttribute("aria-disabled") === "true").toBe(!native);
+});
+
 let credentialProps: ComponentProps<typeof AiConnectionCredentialStep> | undefined;
 vi.mock("@/api/ai-connections", () => ({ aiConnectionsApi: mocks }));
 vi.mock("./AiConnectionCredentialStep", () => ({

@@ -2,6 +2,7 @@ import { ChildProcess } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 
 import { createSanitizedCodexEnvironment, ProcessCodexAppServerTransport, redactCodexDiagnostic } from "./app-server-transport.js";
+import { redactCodexNotificationParams } from "./diagnostic-redaction.js";
 
 function nodeTransport(
   source: string,
@@ -19,10 +20,12 @@ describe("Codex app-server transport limits", () => {
   it("passes the selected managed provider key without admitting arbitrary host secrets", () => {
     expect(createSanitizedCodexEnvironment({
       PAPERCLIP_AI_PROVIDER_KEY: "selected-provider-key",
+      PAPERCLIP_CODEX_HEADER_SECRET_0: "selected-header",
+      PAPERCLIP_CODEX_HEADER_SECRET_16: "outside-bound",
       CODEX_HOME: "/isolated/connection",
       OPENROUTER_API_KEY: "ambient-other-key",
       DATABASE_URL: "private-database",
-    })).toEqual({ PAPERCLIP_AI_PROVIDER_KEY: "selected-provider-key", CODEX_HOME: "/isolated/connection" });
+    })).toEqual({ PAPERCLIP_AI_PROVIDER_KEY: "selected-provider-key", PAPERCLIP_CODEX_HEADER_SECRET_0: "selected-header", CODEX_HOME: "/isolated/connection" });
   });
 
   it("passes only bounded controller-projected GitHub credentials", () => {
@@ -62,6 +65,10 @@ describe("Codex app-server transport limits", () => {
   });
 
   it("redacts real Basic credentials without corrupting ordinary question copy", () => {
+    expect(redactCodexDiagnostic("upstream echoed private-header-value", ["private-header-value"]))
+      .toBe("upstream echoed [REDACTED]");
+    expect(redactCodexDiagnostic("PAPERCLIP_CODEX_HEADER_SECRET_0=private;still-private"))
+      .toBe("PAPERCLIP_CODEX_HEADER_SECRET_0=[REDACTED]");
     expect(redactCodexDiagnostic("Authorization: Basic dXNlcjpwYXNz"))
       .toBe("Authorization: Basic [REDACTED]");
     expect(redactCodexDiagnostic("Basic API foundation"))
@@ -85,6 +92,62 @@ describe("Codex app-server transport limits", () => {
     expect(new Date(info.startedAt).toISOString()).toBe(info.startedAt);
 
     await transport.close();
+  });
+
+  it("redacts echoed bearer and header values in RPC errors, stderr and diagnostic notifications", async () => {
+    const bearer = "fixture-private-bearer";
+    const header = 'fixture-private-"header;value';
+    const diagnostics: string[] = [];
+    const transport = new ProcessCodexAppServerTransport({
+      command: process.execPath,
+      args: ["-e", `process.stdin.once('data', input => {
+        const id = JSON.parse(input.toString().trim()).id;
+        const message = 'upstream rejected ' + process.env.PAPERCLIP_AI_PROVIDER_KEY + ' ' + process.env.PAPERCLIP_CODEX_HEADER_SECRET_0;
+        process.stderr.write(message + '\\n');
+        for (const method of ['warning', 'error', 'configWarning']) process.stdout.write(JSON.stringify({ method, params: { threadId: 'thread-1', message, details: { upstream: message } } }) + '\\n');
+        process.stdout.write(JSON.stringify({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'failed', error: { message } } } }) + '\\n');
+        process.stdout.write(JSON.stringify({ id, error: { code: 401, message } }) + '\\n');
+      });`],
+      environment: { PATH: process.env.PATH, PAPERCLIP_AI_PROVIDER_KEY: bearer, PAPERCLIP_CODEX_HEADER_SECRET_0: header },
+      onDiagnostic: message => diagnostics.push(message),
+    });
+    try {
+      await expect(transport.request("initialize", {})).rejects.toThrow('upstream rejected [REDACTED] [REDACTED]');
+      const iterator = transport.notifications()[Symbol.asyncIterator]();
+      const notifications = [];
+      for (let i = 0; i < 4; i++) notifications.push((await iterator.next()).value);
+      await vi.waitFor(() => expect(diagnostics).toEqual(['upstream rejected [REDACTED] [REDACTED]']));
+      const serialized = JSON.stringify(notifications);
+      expect(serialized).not.toContain(bearer);
+      expect(serialized).not.toContain(JSON.stringify(header).slice(1, -1));
+      expect(notifications[0]).toMatchObject({ params: { threadId: 'thread-1', details: { upstream: 'upstream rejected [REDACTED] [REDACTED]' } } });
+      expect(notifications[3]).toMatchObject({ params: { turn: { id: 'turn-1', error: { message: 'upstream rejected [REDACTED] [REDACTED]' } } } });
+    } finally { await transport.close(); }
+  });
+
+  it("preserves notification identities even when a short secret appears in them", () => {
+    expect(redactCodexNotificationParams("error", { threadId: "thread-1", turnId: "turn-1", message: "rejected 1" }, ["1"]))
+      .toEqual({ threadId: "thread-1", turnId: "turn-1", message: "rejected [REDACTED]" });
+    expect(redactCodexNotificationParams("turn/completed", { threadId: "thread-1", turn: { id: "turn-1", error: { message: "rejected 1" } } }, ["1"]))
+      .toEqual({ threadId: "thread-1", turn: { id: "turn-1", error: { message: "rejected [REDACTED]" } } });
+    const delta = { threadId: "thread-1", delta: "1" };
+    expect(redactCodexNotificationParams("item/agentMessage/delta", delta, ["1"])).toBe(delta);
+  });
+
+  it("redacts RPC credentials before truncating a long diagnostic", async () => {
+    const bearer = "private-credential-".repeat(60);
+    const transport = new ProcessCodexAppServerTransport({
+      command: process.execPath,
+      args: ["-e", `process.stdin.once('data', input => {
+        const id = JSON.parse(input.toString().trim()).id;
+        process.stdout.write(JSON.stringify({ id, error: { code: 401, message: 'x'.repeat(3800) + process.env.PAPERCLIP_AI_PROVIDER_KEY } }) + '\\n');
+      });`],
+      environment: { PATH: process.env.PATH, PAPERCLIP_AI_PROVIDER_KEY: bearer },
+    });
+    try {
+      await expect(transport.request("initialize", {})).rejects.toSatisfy((error: Error) =>
+        error.message.includes("[REDACTED]") && !error.message.includes("private-credential-"));
+    } finally { await transport.close(); }
   });
 
   it("installs cleanup handlers before synchronously reporting process ownership", async () => {

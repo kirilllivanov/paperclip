@@ -180,7 +180,6 @@ function Setup({
   );
   const [connection, setConnection] = useState<ProviderConnection | null>(null);
   const aiBinding = runtimeAiBinding ?? connection?.aiConnection;
-  const connectionModels = useConnectionModels(companyId, aiBinding, brandType);
   const [repository, setRepository] = useState("");
   const [branch, setBranch] = useState("");
   const [createdInSession, setCreated] = useState<Agent | null>(null);
@@ -308,6 +307,10 @@ function Setup({
         ? cause.message
         : "Could not resolve the environment.";
   }
+  const connectionModels = useConnectionModels(
+    envs.isSuccess && settings.isSuccess && experimental.isSuccess && general.isSuccess && !environmentError ? companyId : null,
+    aiBinding, brandType, undefined, environmentId,
+  );
   const requestCopilotModels = brandType === "copilot_runtime" && showModel && !connectionModels && Boolean(aiBinding)
     && envs.isSuccess && settings.isSuccess && experimental.isSuccess && general.isSuccess && !environmentError;
   const copilotModelScope = JSON.stringify([companyId, environmentId, aiBinding]);
@@ -960,6 +963,7 @@ function Setup({
                             companyId={companyId}
                             agentName={name}
                             adapterType={brandType}
+                            runnerProvider={brandType === "codex_local" && (isRunner || runner === "paperclip" || (runner === "auto" && defaultRunner === "paperclip")) ? "codex" : undefined}
                             model={model}
                             environmentId={environmentId ?? undefined}
                             value={aiBinding}
@@ -1080,6 +1084,7 @@ function Setup({
                         </>}
                         {!connectionAdapter && aiProviderForAdapter(brandType) && (
                           <AiConnectionField companyId={companyId} agentName={name} adapterType={brandType} model={model} environmentId={environmentId ?? undefined} value={aiBinding}
+                            runnerProvider={brandType === "codex_local" && (isRunner || runner === "paperclip" || (runner === "auto" && defaultRunner === "paperclip")) ? "codex" : undefined}
                             onChange={binding => { binding.mode !== "router" && setRuntimeAiBinding(binding); resetTest();
                               if (brandType === "copilot_runtime" && hashKey([aiBinding ?? null]) === hashKey([binding ?? null])) void refreshCopilotModels();
                             }} />

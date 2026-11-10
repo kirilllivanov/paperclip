@@ -83,6 +83,7 @@ const sourceUrl = new URL(
   import.meta.url,
 );
 const runner = (await import(sourceUrl.href)) as RunnerModule;
+export const probeCodexModelCatalog = runner.probeCodexModelCatalog;
 
 export const DurablePrpControlPlane = runner.DurablePrpControlPlane;
 export const RUNNER_PRP_PROTOCOL_MIN = runner.RUNNER_PRP_PROTOCOL_MIN;

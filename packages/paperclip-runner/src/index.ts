@@ -48,6 +48,7 @@ export type { DurableRecoveryIdentity } from "./control-plane/prp-transport-type
 export * from "./drivers/codex/app-server-transport.js";
 export * from "./drivers/codex/codex-app-server-driver.js";
 export { resolveCodexCommand, resolvePinnedCodexCommand } from "./drivers/codex/codex-command.js";
+export { probeCodexModelCatalog } from "./drivers/codex/codex-model-catalog.js";
 export { runnerBinaryTarget } from "./live/runner-binary.js";
 export * from "./drivers/opencode/opencode-server-driver.js";
 export * from "./drivers/opencode/mcp-bridge.js";

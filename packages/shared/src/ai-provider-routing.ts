@@ -1,14 +1,28 @@
 import { z } from "zod";
+import { isPrivateEndpointHost } from "./codex-endpoint.js";
+
+export const codexEndpointOptionsSchema = z.object({
+  webSearch: z.enum(["disabled", "cached", "live"]),
+  serviceTier: z.string().trim().regex(/^[a-z][a-z0-9_-]{0,63}$/),
+  standaloneWebSearch: z.boolean(),
+}).strict();
+
+export const DEFAULT_CODEX_ENDPOINT_OPTIONS = {
+  webSearch: "live",
+  serviceTier: "default",
+  standaloneWebSearch: true,
+} as const satisfies z.infer<typeof codexEndpointOptionsSchema>;
 
 /** Value-free routing stored on the connection, never supplied by an agent binding. */
 export const aiProviderRoutingSchema = z
   .object({
     kind: z.enum(["openrouter", "bedrock", "gateway", "local"]),
-    protocol: z.enum(["responses", "messages", "chat", "bedrock"]),
+    protocol: z.enum(["responses", "messages", "chat", "bedrock", "codex"]),
     baseUrl: z.string().trim().max(2048).optional(),
     auth: z
       .enum(["bearer", "api_key", "none"])
       .default("bearer"),
+    codex: codexEndpointOptionsSchema.optional(),
     region: z
       .string()
       .regex(/^[a-z]{2}(?:-[a-z]+)+-\d$/)
@@ -29,6 +43,8 @@ export const aiProviderRoutingSchema = z
   .superRefine((route, ctx) => {
     const invalid = (message: string) =>
       ctx.addIssue({ code: "custom", message });
+    if (route.codex && route.protocol !== "codex") invalid("Codex options require a Codex endpoint.");
+    if (route.protocol === "codex" && !route.codex) invalid("Codex endpoint settings are required.");
     if (route.kind === "bedrock") {
       if (
         route.protocol !== "bedrock" ||
@@ -51,6 +67,8 @@ export const aiProviderRoutingSchema = z
       invalid("OpenRouter uses its official endpoint and an API key.");
     if (route.auth === "api_key" && route.protocol !== "messages")
       invalid("API-key header authentication requires Anthropic Messages.");
+    if (route.protocol === "codex" && (route.kind !== "gateway" || route.auth !== "bearer"))
+      invalid("Codex endpoints require a custom gateway and Bearer authentication.");
     if (route.kind === "gateway" || route.kind === "local") {
       try {
         const url = new URL(route.baseUrl ?? "");
@@ -62,14 +80,14 @@ export const aiProviderRoutingSchema = z
           url.password ||
           url.search ||
           url.hash ||
-          (url.protocol !== "https:" && !(url.protocol === "http:" && loopback))
+          (url.protocol !== "https:" && !(url.protocol === "http:" && (loopback || (route.protocol === "codex" && isPrivateEndpointHost(url.hostname)))))
         )
           throw new Error();
         if (route.kind === "local" && !loopback)
           invalid("A local endpoint must use localhost or a loopback address.");
       } catch {
         invalid(
-          "Enter an HTTPS base URL without credentials, query parameters, or a fragment. Local endpoints may use HTTP.",
+          "Enter an HTTPS base URL without credentials, query parameters, or a fragment. Loopback and private-network Codex endpoints may use HTTP.",
         );
       }
     }
@@ -111,7 +129,7 @@ export function isAiRoutingCompatible(
       "pi_local",
       "hermes_local",
     ].includes(harness);
-  if (route.protocol === "responses") return harness === "codex_local";
+  if (route.protocol === "responses" || route.protocol === "codex") return harness === "codex_local";
   if (route.protocol === "messages") return harness === "claude_local";
   return ["opencode_local", "hermes_local"].includes(harness);
 }
@@ -137,6 +155,7 @@ export function aiRoutingModel(
 /** Catalog identity is derived from routing, including accounts saved before these rows existed. */
 export function aiConnectionCatalogSlug(provider: string, routing?: Pick<AiProviderRouting, "kind" | "protocol">): string {
   if (routing?.kind === "gateway") {
+    if (routing.protocol === "codex") return "codex-endpoint";
     return routing.protocol === "messages" ? "messages-api"
       : routing.protocol === "chat" ? "chat-completions-api" : "responses-api";
   }
@@ -145,11 +164,12 @@ export function aiConnectionCatalogSlug(provider: string, routing?: Pick<AiProvi
 
 /** Direct catalog setup presets; legacy gateway links still open their existing setup. */
 export function aiProviderSetupPreset(source: string | null): {
-  provider: "openrouter" | "bedrock" | "gateway" | "local" | "google";
+  provider: "openrouter" | "bedrock" | "gateway" | "local" | "google" | "codex";
   protocol?: AiProviderRouting["protocol"];
   label?: string;
 } | undefined {
   switch (source) {
+    case "codex-endpoint": return { provider: "codex", protocol: "codex", label: "Codex endpoint" };
     case "responses-api": return { provider: "gateway", protocol: "responses", label: "Responses API" };
     case "messages-api": return { provider: "gateway", protocol: "messages", label: "Messages API" };
     case "chat-completions-api": return { provider: "gateway", protocol: "chat", label: "Chat Completions API" };

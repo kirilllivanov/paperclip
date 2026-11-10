@@ -968,7 +968,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
     ? String(isCreate ? props.values.adapterSchemaValues?.acpxAgent ?? "claude" : eff("adapterConfig", "acpxAgent", config.acpxAgent ?? "claude")) : undefined;
   const modelAiBinding = aiConnectionBindingSchema.safeParse((overlay.runtime.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? runtimeConfig.aiConnection).data;
   const modelCacheIdentity = runnerAcpxAgent === "copilot" ? `${modelProvider}:${runnerAcpxAgent}:${isCreate ? "new" : props.agent.id}:${JSON.stringify(modelAiBinding ?? null)}` : modelProvider;
-  const connectionModels = useConnectionModels(isExternalRunner ? null : selectedCompanyId, isCreate ? undefined : modelAiBinding, aiRoutingHarness(adapterType, runnerProvider, runnerAcpxAgent));
+  const connectionModels = useConnectionModels(isExternalRunner ? null : selectedCompanyId, isCreate ? undefined : modelAiBinding, aiRoutingHarness(adapterType, runnerProvider, runnerAcpxAgent), isCreate ? undefined : props.agent.id, currentDefaultEnvironmentId || null);
   // Fetch adapter models for the effective provider, including unsaved changes.
   const modelAdapterType = isRunnerHarness ? harnessType : adapterType;
   const modelQueryKey = selectedCompanyId
@@ -1795,6 +1795,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
 
           {!isExternalRunner && !isCreate && selectedCompanyId && <AiConnectionField companyId={selectedCompanyId} agentId={props.agent.id} agentName={props.agent.name} adapterType={aiRoutingHarness(adapterType, eff("adapterConfig", "provider", config.provider), eff("adapterConfig", "acpxAgent", config.acpxAgent))}
             routerAdapterType={adapterType} value={aiRuntimeConnectionBindingSchema.safeParse((overlay.runtime.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? runtimeConfig.aiConnection).data}
+            runnerProvider={adapterType === "paperclip_runner" && eff("adapterConfig", "provider", config.provider) === "codex" ? "codex" : undefined}
             model={String(eff("adapterConfig", "model", config.model) ?? "")} environmentId={currentDefaultEnvironmentId || undefined} legacy
             onChange={binding => {
               mark("runtime", "runtimeConfig", { ...runtimeConfig, aiConnection: binding });

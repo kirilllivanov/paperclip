@@ -41,6 +41,12 @@ existing preparation and verification lifecycle.
 
 Open `/agents/:agentId` and the configuration/instruction surfaces it exposes.
 
+For **Paperclip Runner → Codex** with a custom **Codex endpoint** connection,
+an empty connection model list loads the native endpoint catalog in local
+execution environments. Select a returned model ID; discovery failures remain
+visible. Remote environments require explicit model IDs and their own **Run test**.
+See [custom Codex configuration](../../doc/connections/AI-CONNECTIONS.md#custom-codex-backend-fork).
+
 In `/agents/all`, select roster checkboxes and choose **Edit connection & model**.
 A mixed selection offers one action per harness. Each field is opt-in. The editor
 previews each changed value and excludes agents already at the target value.

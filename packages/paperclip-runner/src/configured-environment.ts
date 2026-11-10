@@ -1,4 +1,5 @@
 import { AGENT_OBSERVABILITY_ENV_KEYS } from "./drivers/agent-observability.js";
+import { CODEX_HEADER_ENV_KEYS } from "./drivers/codex-endpoint.js";
 /** Names minted by the controller from the resolved task configuration.
  * Values remain in the process environment, never in argv or this manifest.
  * Do not mint this projection from ambient process.env.
@@ -6,6 +7,7 @@ import { AGENT_OBSERVABILITY_ENV_KEYS } from "./drivers/agent-observability.js";
 export const CONFIGURED_ENVIRONMENT_KEYS = "PAPERCLIP_CONFIGURED_ENV_KEYS";
 
 export const GENERATED_RUNTIME_ENVIRONMENT_KEYS: ReadonlySet<string> = new Set([
+  ...CODEX_HEADER_ENV_KEYS,
   CONFIGURED_ENVIRONMENT_KEYS,
   ...AGENT_OBSERVABILITY_ENV_KEYS,
   "PAPERCLIP_AGENT_ID", "PAPERCLIP_AGENT_KEY_ID", "PAPERCLIP_AGENT_PUBLIC_KEY", "PAPERCLIP_AGENT_PRIVATE_KEY",

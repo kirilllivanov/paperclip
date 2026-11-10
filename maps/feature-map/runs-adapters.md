@@ -71,6 +71,18 @@ own login keys must remain unavailable. Verify the same delivery without an
 agent identity. Shell-policy metadata must contain names rather than values.
 
 Choose Codex as the harness; the UI displays its name/icon for both runners.
+For a custom backend, open Apps / Connectors → Codex endpoint, or select
+Paperclip Runner, then Advanced providers → Codex endpoint.
+Enter the full backend URL, Bearer token and optional HTTP
+headers. Save and reload; test the model from the runner environment.
+Private IPv4 HTTP is supported. Reconnect replaces token and headers together.
+New connections save all Codex settings; incomplete saved settings and unsupported
+runtime authentication or WebSocket overrides are rejected.
+The [endpoint transport test](../../packages/paperclip-runner/src/drivers/runtime-context-materializer-codex-endpoint.test.ts)
+and [runnerd endpoint test](../../packages/paperclip-runner/src/live/runnerd-codex-endpoint.test.ts)
+use real pinned Codex with a controlled rejecting backend. The latter covers
+all 16 header bindings across the TypeScript and Rust launch boundaries and
+credential redaction in returned diagnostics. Neither proves a successful live model answer.
 Advanced identifies the automatic default and offers Paperclip Runner or Legacy.
 New Codex agents default to the native runner on supported macOS or GNU/Linux
 targets; the [shared selection contract](../../packages/shared/src/agent-runner.ts)

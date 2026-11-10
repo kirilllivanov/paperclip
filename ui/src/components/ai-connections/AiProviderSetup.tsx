@@ -4,6 +4,8 @@ import { Network, Monitor } from "lucide-react";
 import {
   aiProviderRoutingSchema,
   createAiConnectionSchema,
+  codexEndpointOptionsSchema,
+  DEFAULT_CODEX_ENDPOINT_OPTIONS,
   type AiProvider,
   type AiProviderRouting,
   type AiConnectionBinding,
@@ -16,6 +18,7 @@ import { ConnectionAccessDefaults, connectionDefaultSummarySentence } from "@/fe
 import { AppLogo } from "@/pages/apps/AppLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -57,6 +60,12 @@ const providers = [
     advanced: true,
   },
   {
+    id: "codex",
+    name: "Codex endpoint",
+    description: "Custom Codex backend · Paperclip Runner",
+    advanced: true,
+  },
+  {
     id: "local",
     name: "Local endpoint",
     description: "A model server in the agent’s environment",
@@ -92,7 +101,7 @@ export function AiProviderSetup({
 }) {
   const [provider, setProvider] = useState<ProviderChoice | undefined>(
     reconnect
-      ? reconnect.routing?.kind === "gateway" ||
+      ? reconnect.routing?.protocol === "codex" ? "codex" : reconnect.routing?.kind === "gateway" ||
         reconnect.routing?.kind === "local" ||
         reconnect.routing?.kind === "bedrock"
         ? reconnect.routing.kind
@@ -119,6 +128,10 @@ export function AiProviderSetup({
     reconnect?.routing?.models.map((m) => m.id).join(", ") ?? "",
   );
   const [apiKey, setApiKey] = useState("");
+  const [httpHeaders, setHttpHeaders] = useState<{ name: string; value: string }[]>([]);
+  const [codexOptions, setCodexOptions] = useState(() => codexEndpointOptionsSchema.parse(
+    reconnect?.routing?.protocol === "codex" ? reconnect.routing.codex : DEFAULT_CODEX_ENDPOINT_OPTIONS,
+  ));
   const client = useQueryClient();
   const accounts = useQuery({
     queryKey: ["ai-connections", companyId, agentId],
@@ -131,13 +144,13 @@ export function AiProviderSetup({
     queryKey: ["agents", companyId, "provider-access"],
     queryFn: () => agentsApi.list(companyId),
   });
-  const label = providerLabel ?? providers.find((p) => p.id === provider)?.name ?? (provider === "github" ? "GitHub Copilot" : "provider");
-  const advanced = reconnect ? Boolean(reconnect.routing) : ["openrouter", "bedrock", "gateway", "local"].includes(provider ?? "");
+  const label = reconnect?.routing?.protocol === "codex" ? "Codex endpoint" : providerLabel ?? providers.find((p) => p.id === provider)?.name ?? (provider === "github" ? "GitHub Copilot" : "provider");
+  const advanced = reconnect ? Boolean(reconnect.routing) : ["openrouter", "bedrock", "gateway", "local", "codex"].includes(provider ?? "");
   const nativeProvider: AiProvider =
     provider === "bedrock"
       ? "anthropic"
-      : provider === "gateway" || provider === "local"
-        ? protocol === "messages"
+      : provider === "gateway" || provider === "local" || provider === "codex"
+        ? provider !== "codex" && protocol === "messages"
           ? "anthropic"
           : "openai"
         : (provider ?? "openai");
@@ -173,12 +186,13 @@ export function AiProviderSetup({
       const routing =
         reconnect?.routing ??
         aiProviderRoutingSchema.parse({
-          kind: provider,
-          protocol: provider === "bedrock" ? "bedrock" : protocol,
-          auth: provider === "openrouter" ? "bearer" : auth,
+          kind: provider === "codex" ? "gateway" : provider,
+          protocol: provider === "codex" ? "codex" : provider === "bedrock" ? "bedrock" : protocol,
+          auth: provider === "openrouter" || provider === "codex" ? "bearer" : auth,
+          ...(provider === "codex" ? { codex: codexOptions } : {}),
           ...(provider === "bedrock"
             ? { region }
-            : provider === "gateway" || provider === "local"
+            : provider === "gateway" || provider === "local" || provider === "codex"
               ? { baseUrl }
               : {}),
           models: models
@@ -198,6 +212,7 @@ export function AiProviderSetup({
           agentIds: [...agentIds],
           connectionId: reconnect?.id,
           routing,
+          ...(provider === "codex" ? { httpHeaders } : {}),
           ...(auth !== "none" ? { apiKey } : {}),
         }),
       );
@@ -205,6 +220,7 @@ export function AiProviderSetup({
     onSuccess: complete,
     onSettled: () => {
       setApiKey("");
+      setHttpHeaders([]);
     },
   });
   const choices = (advancedOnly: boolean) => (
@@ -230,6 +246,7 @@ export function AiProviderSetup({
         setProvider(id as ProviderChoice);
         setStep("connect");
         setApiKey("");
+        setHttpHeaders([]);
         setAuth("bearer");
         save.reset();
       }}
@@ -245,8 +262,9 @@ export function AiProviderSetup({
         disabled={Boolean(reconnect)}
       />
       <span className="block">
-        Use the provider’s model ID or your gateway’s alias. You can
-        also enter one on the agent.
+        {provider === "codex"
+          ? "Leave empty to load models from the endpoint for a local execution environment. For remote environments, enter model IDs here or on the agent."
+          : "Use the provider’s model ID or your gateway’s alias. You can also enter one on the agent."}
       </span>
     </label>
   );
@@ -323,14 +341,14 @@ export function AiProviderSetup({
             save.mutate();
           }}
         >
-          {(provider === "gateway" || provider === "local") && (
+          {(provider === "gateway" || provider === "local" || provider === "codex") && (
             <>
               <label className="block space-y-2 text-xs text-muted-foreground">
                 Provider URL
                 <Input
                   aria-label="Provider URL"
                   placeholder={
-                    provider === "local"
+                    provider === "codex" ? "https://codex.example.com/backend-api/codex" : provider === "local"
                       ? "http://localhost:11434/v1"
                       : "https://gateway.example.com/v1"
                   }
@@ -339,7 +357,7 @@ export function AiProviderSetup({
                   disabled={Boolean(reconnect)}
                 />
               </label>
-              <label className="block space-y-2 text-xs text-muted-foreground">
+              {provider !== "codex" && <label className="block space-y-2 text-xs text-muted-foreground">
                 API format
                 <Select
                   value={protocol}
@@ -365,7 +383,12 @@ export function AiProviderSetup({
                     </SelectItem>
                   </SelectContent>
                 </Select>
-              </label>
+              </label>}
+              {provider === "codex" && <p className="text-xs text-muted-foreground">
+                Enter the Codex backend base URL, including /backend-api/codex.
+                HTTP is supported for private IP addresses and loopback.
+                The address must be reachable from the runner.
+              </p>}
             </>
           )}
           {provider === "bedrock" && (
@@ -379,7 +402,7 @@ export function AiProviderSetup({
               />
             </label>
           )}
-          {provider !== "openrouter" && (
+          {provider !== "openrouter" && provider !== "codex" && (
             <label className="block space-y-2 text-xs text-muted-foreground">
               Authentication
               <Select
@@ -413,9 +436,9 @@ export function AiProviderSetup({
           {
             auth !== "none" && (
               <label className="block space-y-2 text-xs text-muted-foreground">
-                API key
+                {provider === "codex" ? "Bearer token" : "API key"}
                 <Input
-                  aria-label="API key"
+                  aria-label={provider === "codex" ? "Bearer token" : "API key"}
                   type="password"
                   autoComplete="new-password"
                   value={apiKey}
@@ -424,6 +447,46 @@ export function AiProviderSetup({
               </label>
             )
           }
+          {provider === "codex" && <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">HTTP headers (optional). Values are stored as secrets.
+              {reconnect && " Enter all headers again; reconnect replaces the token and headers."}
+            </p>
+            {httpHeaders.map((header, index) => <div key={index} className="flex items-center gap-2">
+              <Input aria-label={`Header name ${index + 1}`} placeholder="Header name" value={header.name}
+                onChange={event => setHttpHeaders(current => current.map((h, i) => i === index ? { ...h, name: event.target.value } : h))} />
+              <Input aria-label={`Header value ${index + 1}`} placeholder="Header value" type="password" autoComplete="new-password" value={header.value}
+                onChange={event => setHttpHeaders(current => current.map((h, i) => i === index ? { ...h, value: event.target.value } : h))} />
+              <Button type="button" variant="ghost" onClick={() => setHttpHeaders(current => current.filter((_, i) => i !== index))}>Remove</Button>
+            </div>)}
+            <Button type="button" variant="outline" disabled={httpHeaders.length >= 16 || save.isPending}
+              onClick={() => setHttpHeaders(current => [...current, { name: "", value: "" }])}>Add HTTP header</Button>
+          </div>}
+          {provider === "codex" && <details className="space-y-3">
+            <summary className="cursor-pointer text-sm text-muted-foreground">Codex settings</summary>
+            <label className="block space-y-2 text-xs text-muted-foreground">
+              Web search
+              <Select value={codexOptions.webSearch} disabled={Boolean(reconnect)} onValueChange={value => setCodexOptions(current => ({ ...current, webSearch: value as typeof current.webSearch }))}>
+                <SelectTrigger aria-label="Web search"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="disabled">Disabled</SelectItem>
+                  <SelectItem value="cached">Cached</SelectItem>
+                  <SelectItem value="live">Live</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="block space-y-2 text-xs text-muted-foreground">
+              Service tier
+              <Input aria-label="Service tier" value={codexOptions.serviceTier} disabled={Boolean(reconnect)} onChange={event => setCodexOptions(current => ({ ...current, serviceTier: event.target.value }))} />
+            </label>
+            {([
+              ["standaloneWebSearch", "Standalone web search (experimental)"],
+            ] as const).map(([key, label]) => <label key={key} className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Checkbox aria-label={label} checked={codexOptions[key]} disabled={Boolean(reconnect)} onCheckedChange={checked => setCodexOptions(current => ({ ...current, [key]: checked === true }))} />
+              {label}
+            </label>)}
+            <p className="text-xs text-muted-foreground">Codex analytics and feedback are disabled. Tools and skills are managed by Paperclip.</p>
+            {reconnect && <p className="text-xs text-muted-foreground">Create another connection to change these settings.</p>}
+          </details>}
           {reconnect && <details><summary className="cursor-pointer text-sm text-muted-foreground">Model settings</summary>{modelSettings}</details>}
           <p className="text-xs text-muted-foreground">
             Test the connection with your chosen model in the agent’s execution

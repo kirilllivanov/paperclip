@@ -132,6 +132,7 @@ fn eligible_key(key: &str) -> bool {
             .enumerate()
             .all(|(i, b)| b == b'_' || b.is_ascii_alphabetic() || (i > 0 && b.is_ascii_digit()))
         && !RESERVED.contains(&upper.as_str())
+        && !crate::codex_endpoint::HEADER_ENV_KEYS.contains(&upper.as_str())
         && ![
             "LD_",
             "DYLD_",
@@ -224,6 +225,27 @@ mod tests {
             }))
             .is_err()
         );
+    }
+
+    #[test]
+    fn rejects_provider_header_values_even_when_they_are_present() {
+        for key in crate::codex_endpoint::HEADER_ENV_KEYS {
+            for name in [key.to_string(), key.to_ascii_lowercase()] {
+                let mut command = Command::new("unused");
+                let names = serde_json::to_string(&vec![&name]).unwrap();
+                assert!(apply_configured_environment(&mut command, |key| {
+                    if key == MARKER {
+                        Some(names.clone())
+                    } else if key == name {
+                        Some("private-header-value".to_owned())
+                    } else {
+                        None
+                    }
+                })
+                .is_err());
+                assert_eq!(command.get_envs().count(), 0);
+            }
+        }
     }
 
     #[test]

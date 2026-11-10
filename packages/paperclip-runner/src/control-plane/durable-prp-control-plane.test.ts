@@ -20,6 +20,7 @@ import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { configuredEnvironmentProjection } from "../configured-environment.js";
+import { CODEX_HEADER_ENV_KEYS } from "../drivers/codex-endpoint.js";
 import { NativeSessionProtocolIntegrityError } from "../contracts/native-session-backend.js";
 import { createCapabilityRunnerdCodexTransport, createCapabilityRunnerdProviderEnvironment } from "../live/runnerd-codex-transport.js";
 import { ACPX_CREDENTIAL_BINDING_ENV, createAcpxSidecarHostEnvironment } from "../drivers/acpx/environment.js";
@@ -594,6 +595,33 @@ it("preserves an explicit OpenCode permission mode at the runner spawn boundary"
   expect(launches[0]!.environment.PAPERCLIP_API_KEY).toBeUndefined();
   expect(launches[0]!.environment.NODE_OPTIONS).toBeUndefined();
   expect(launches[0]!.environment.PAPERCLIP_OPENCODE_COMMAND).toBeUndefined();
+});
+
+it("passes all selected Codex headers to runnerd without adding them to the task shell projection", () => {
+  const launches: RunnerProcessLaunchSpec[] = [];
+  const selected = {
+    PATH: "/bin", PAPERCLIP_AI_PROVIDER_KEY: "selected-bearer",
+    ...Object.fromEntries(CODEX_HEADER_ENV_KEYS.map((key, i) => [key, `selected-header-${i}`])),
+  };
+  const environment = createCapabilityRunnerdProviderEnvironment({ provider: "codex",
+    options: { environment: { ...selected, ...configuredEnvironmentProjection(selected), PAPERCLIP_CODEX_HEADER_SECRET_16: "outside-bound" } }, identity,
+    codexHome: "/isolated/codex-home", runtimeContextPath: "/isolated/context.json", hasRuntimeContext: false,
+  });
+  spawnRunner({ connection: { mode: "connect", connectUrl: "ws://127.0.0.1:43127" },
+    stateDirectory: "/tmp/paperclip-runner-test", identity, ticket: "bootstrap-ticket",
+    maxOutboxBytes: 256 * 1024, p0ReserveBytes: 64 * 1024,
+    runnerVersion: expectedRunnerVersion, runnerDigest: expectedRunnerDigest, environment,
+    processLauncher: spec => {
+      launches.push(spec);
+      return { child: { pid: 42, exitCode: null, signalCode: null, kill: () => true },
+        completion: Promise.resolve({ code: 0, signal: null, stdout: "", stderr: "" }) };
+    },
+  });
+  const actual = launches[0]!.environment;
+  expect(actual.PAPERCLIP_AI_PROVIDER_KEY).toBe("selected-bearer");
+  for (const [i, key] of CODEX_HEADER_ENV_KEYS.entries()) expect(actual[key]).toBe(`selected-header-${i}`);
+  expect(actual.PAPERCLIP_CODEX_HEADER_SECRET_16).toBeUndefined();
+  expect(JSON.parse(actual.PAPERCLIP_CONFIGURED_ENV_KEYS!)).toEqual([]);
 });
 
 it("preserves only bounded GitHub credential projection at the runner spawn boundary", () => {

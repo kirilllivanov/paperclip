@@ -19,6 +19,7 @@ import { agentFileStore, agentFileTokenFromHash } from "../services/agent-file-s
 import { pipeline } from "node:stream/promises";
 import { resolveAgentAppearance, agentAvatarUrl } from "@paperclipai/shared";
 import { listOpenRouterModels } from "../services/openrouter-models.js";
+import { listCodexConnectionModels } from "../services/codex-connection-models.js";
 import { withManagedAiProbe, stripAiAuthBindings } from "../services/ai-connection-runtime.js";
 import {
   ADAPTER_AUTH_MISSING_CHECK_CODE,
@@ -3049,6 +3050,41 @@ export function agentRoutes(
       return;
     }
     const provider = asNonEmptyString(req.query.provider);
+    if (type === "paperclip_runner" && provider === "codex" && typeof req.query.aiConnection === "string") {
+      if (req.query.aiConnection.length > 4096) throw unprocessable("Invalid AI connection binding");
+      let binding: AiConnectionBinding;
+      try { binding = aiConnectionBindingSchema.parse(JSON.parse(req.query.aiConnection)); }
+      catch { throw unprocessable("Invalid AI connection binding"); }
+      if (binding.provider !== "openai") throw unprocessable("Select a Codex AI connection");
+      const modelAgentId = asNonEmptyString(req.query.agentId);
+      let modelEnvironmentId = environmentId;
+      if (modelAgentId) {
+        const agent = await svc.getById(modelAgentId);
+        if (!agent || agent.companyId !== companyId) throw notFound("Agent not found");
+        await assertCanUpdateAgent(req, agent);
+        if (req.query.environmentId === undefined) modelEnvironmentId = agent.defaultEnvironmentId ?? null;
+      } else await assertCanCreateAgentsForCompany(req, companyId);
+      if ((await instanceSettings.getExperimental()).enableManagedSandboxOnly
+        || (await instanceSettings.getGeneral()).executionMode === "kubernetes") {
+        throw unprocessable("Automatic Codex model discovery is unavailable in managed execution mode. Specify model IDs in the connection.");
+      }
+      modelEnvironmentId = await resolveAdapterTestEnvironmentId(companyId, modelEnvironmentId);
+      if (modelEnvironmentId) {
+        await assertAdapterTestEnvironmentForCompany(companyId, modelEnvironmentId, type);
+        const modelEnvironment = await environmentsSvc.getById(modelEnvironmentId);
+        if (!modelEnvironment || modelEnvironment.status !== "active" || modelEnvironment.driver !== "local") {
+          throw unprocessable("Automatic Codex model discovery requires a local execution environment. Specify model IDs in the connection for a remote environment.");
+        }
+      }
+      const models = await listCodexConnectionModels(db, {
+        companyId, agentId: modelAgentId ?? "00000000-0000-0000-0000-000000000000",
+        responsibleUserId: responsibleUserForAiRequest(req), binding,
+        allowUninstalledShared: !modelAgentId && await canInstallSharedAiConnectionForNewAgent(db, req, companyId, binding),
+      });
+      res.setHeader("Cache-Control", "no-store");
+      res.json(models);
+      return;
+    }
     if (type === "paperclip_runner" && provider === "acpx" && req.query.acpxAgent === "copilot") {
       const userId = responsibleUserForAiRequest(req);
       let binding: AiConnectionBinding = { provider: "github", method: "api_key", mode: "responsible_user" };

@@ -63,6 +63,20 @@ it("also discovers models for legacy OpenRouter connections without routing meta
   await vi.waitFor(() => expect(result?.models).toEqual(catalog));
 });
 
+it("discovers models using the selected Codex connection and keeps catalogs separate", async () => {
+  const codexBinding: AiConnectionBinding = { provider: "openai", method: "api_key", mode: "delegated", connectionId: "codex-a", grantId: "grant-a" };
+  const codex = { ...account, id: "codex-a", grantId: "grant-a", provider: "openai" as const,
+    routing: { kind: "gateway" as const, protocol: "codex" as const, auth: "bearer" as const, baseUrl: "https://codex.example.com/backend-api/codex", models: [],
+      codex: { webSearch: "live" as const, serviceTier: "default", standaloneWebSearch: true } } };
+  vi.mocked(agentsApi.adapterModels).mockResolvedValueOnce([{ id: "private-a", label: "Private A" }]).mockResolvedValueOnce([{ id: "private-b", label: "Private B" }]);
+  await mount([codex, { ...codex, id: "codex-b", grantId: "grant-b" }], "codex_local", codexBinding);
+  await vi.waitFor(() => expect(result?.models).toEqual([{ id: "private-a", label: "Private A" }]));
+  expect(agentsApi.adapterModels).toHaveBeenCalledWith("company", "paperclip_runner", { provider: "codex", aiConnection: codexBinding });
+  await render({ ...codexBinding, connectionId: "codex-b", grantId: "grant-b" });
+  expect(result?.models).not.toContainEqual({ id: "private-a", label: "Private A" });
+  await vi.waitFor(() => expect(result?.models).toEqual([{ id: "private-b", label: "Private B" }]));
+});
+
 it("preserves an explicit connection model list instead of replacing it with the public catalog", async () => {
   await mount([{ ...account, routing: { ...account.routing!, models: [{ id: "company/model", label: "Approved model" }] } }]);
   expect(result?.models).toEqual([{ id: "openrouter/company/model", label: "Approved model" }]);

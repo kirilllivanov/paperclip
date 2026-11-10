@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { parse } from "smol-toml";
 
 import {
   NATIVE_RUNTIME_ASSET_SCHEMA,
@@ -190,8 +191,9 @@ command = "untrusted-command"
     expect(config).toContain('model_provider = "paperclip"');
     expect(config).toContain('base_url = "https://openrouter.ai/api/v1"');
     expect(config).toContain('env_key = "PAPERCLIP_AI_PROVIDER_KEY"');
-    expect(config).toContain('"HTTP-Referer" = "https://paperclip.ing"');
-    expect(config).toContain('"X-OpenRouter-Title" = "Paperclip"');
+    expect(parse(config)).toMatchObject({ model_providers: { paperclip: { http_headers: {
+      "HTTP-Referer": "https://paperclip.ing", "X-OpenRouter-Title": "Paperclip",
+    } } } });
     expect(config).toContain("shell_snapshot = false");
     expect(config).not.toMatch(/unrelated|untrusted|unassigned/);
     await expect(stat(join(target, "auth.json"))).rejects.toThrow();

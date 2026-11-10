@@ -1,5 +1,6 @@
 import { AGENT_OBSERVABILITY_ENV_KEYS } from "../drivers/agent-observability.js";
 import { configuredEnvironment } from "../configured-environment.js";
+import { CODEX_HEADER_ENV_KEYS } from "../drivers/codex-endpoint.js";
 import { spawn } from "node:child_process";
 import {
   createCipheriv,
@@ -3417,6 +3418,7 @@ const runnerPlatformEnvironmentKeys = [
 ] as const;
 
 const runnerExplicitProviderEnvironmentKeys = [
+  ...CODEX_HEADER_ENV_KEYS,
   ...ACPX_CREDENTIAL_NAMES.claude.filter(name => !name.startsWith("AWS_")),
   ...CLAUDE_ROUTING_ENV_KEYS,
   "PAPERCLIP_AI_PROVIDER_KEY",

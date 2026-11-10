@@ -244,6 +244,7 @@ export const agentsApi = {
     if (options?.agentId) params.set("agentId", options.agentId);
     if (options?.poolId) params.set("poolId", options.poolId);
     if (options?.environmentId) params.set("environmentId", options.environmentId);
+    else if (type === "paperclip_runner" && options?.provider === "codex" && options.environmentId === null) params.set("environmentId", "");
     const query = params.size > 0 ? `?${params.toString()}` : "";
     return api.get<AdapterModel[]>(
       `/companies/${encodeURIComponent(companyId)}/adapters/${encodeURIComponent(type)}/models${query}`,

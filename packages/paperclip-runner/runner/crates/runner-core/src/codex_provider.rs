@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+use crate::codex_endpoint;
 #[cfg(test)]
 use crate::durable::QualifiedLaunchArtifact;
 use crate::durable::{redact_text, OpenCodeLaunchProfile};
@@ -158,6 +159,7 @@ fn base64_encode(input: &[u8]) -> String {
 }
 
 struct ProviderTraceSink {
+    diagnostic_secrets: Vec<String>,
     sender: Option<mpsc::SyncSender<String>>,
     writer: Option<thread::JoinHandle<()>>,
     writer_error: Arc<Mutex<Option<String>>>,
@@ -213,6 +215,7 @@ impl ProviderTraceSink {
             }
         });
         Self {
+            diagnostic_secrets: codex_endpoint::diagnostic_secrets(|key| std::env::var(key).ok()),
             sender: Some(sender),
             writer: Some(writer),
             writer_error,
@@ -253,7 +256,7 @@ impl ProviderTraceSink {
             if std::env::var("PAPERCLIP_AGENT_PRIVATE_KEY").is_ok_and(|key| !key.is_empty()) {
                 "[REDACTED: agent identity runtime]".to_owned()
             } else {
-                String::from_utf8_lossy(raw).into_owned()
+                codex_endpoint::redact_text(&String::from_utf8_lossy(raw), &self.diagnostic_secrets)
             };
         let raw = redacted.as_bytes();
         if self.captured_bytes.saturating_add(raw.len()) > self.max_bytes {
@@ -668,6 +671,7 @@ enum AmbiguousTurnMessage {
 }
 
 pub struct CodexProvider {
+    diagnostic_secrets: Vec<String>,
     process: SupervisedProcess,
     _stdio_mcp: Option<crate::stdio_mcp::StdioMcpSession>,
     stderr_tail: BoundedLogBuffer,
@@ -959,6 +963,13 @@ impl CodexProvider {
             .iter()
             .copied()
             .chain(provider_environment_keys.iter().copied())
+            .chain(
+                (config.provider == "codex")
+                    .then_some(codex_endpoint::HEADER_ENV_KEYS)
+                    .into_iter()
+                    .flatten()
+                    .copied(),
+            )
             .chain(GITHUB_CREDENTIAL_ENVIRONMENT_KEYS.iter().copied())
             .collect::<Vec<_>>();
         let runtime_request_scope = new_runtime_request_scope()?;
@@ -1036,6 +1047,7 @@ impl CodexProvider {
             return Err(error);
         }
         let mut provider = Self {
+            diagnostic_secrets: codex_endpoint::diagnostic_secrets(|key| std::env::var(key).ok()),
             process,
             _stdio_mcp: stdio_mcp,
             stderr_tail: BoundedLogBuffer::new(
@@ -2311,7 +2323,7 @@ impl CodexProvider {
                 };
             };
             let trace_frame_id = self.trace_inbound(&line);
-            let message = parse_provider_message(&line).map_err(|error| {
+            let message = self.parse_provider_message(&line).map_err(|error| {
                 if let (Some(trace), Some(frame_id)) = (self.trace.as_mut(), trace_frame_id) {
                     trace.interpretation(
                         frame_id,
@@ -3124,7 +3136,7 @@ impl CodexProvider {
                 )));
             };
             let trace_frame_id = self.trace_inbound(&line);
-            let message = parse_provider_message(&line).map_err(|error| {
+            let message = self.parse_provider_message(&line).map_err(|error| {
                 if let (Some(trace), Some(frame_id)) = (self.trace.as_mut(), trace_frame_id) {
                     trace.interpretation(
                         frame_id,
@@ -3204,7 +3216,11 @@ impl CodexProvider {
             match self.process.recv_timeout(remaining) {
                 Ok(ProcessOutput::Stdout(line)) => return Ok(Some(line)),
                 Ok(ProcessOutput::Stderr(line)) => {
-                    self.stderr_tail.push(redact_text(&line));
+                    self.stderr_tail
+                        .push(redact_text(&codex_endpoint::redact_text(
+                            &line,
+                            &self.diagnostic_secrets,
+                        )));
                 }
                 Ok(ProcessOutput::StdoutError(message)) => {
                     return Err(LocalRunnerError::invalid(message));
@@ -3226,7 +3242,11 @@ impl CodexProvider {
             }
             match self.process.recv_timeout(remaining) {
                 Ok(ProcessOutput::Stderr(line)) => {
-                    self.stderr_tail.push(redact_text(&line));
+                    self.stderr_tail
+                        .push(redact_text(&codex_endpoint::redact_text(
+                            &line,
+                            &self.diagnostic_secrets,
+                        )));
                 }
                 Ok(ProcessOutput::StderrClosed)
                 | Err(mpsc::RecvTimeoutError::Timeout)
@@ -3245,6 +3265,12 @@ impl CodexProvider {
         } else {
             format!(" stderrTail={diagnostics:?}")
         }
+    }
+
+    fn parse_provider_message(&self, line: &str) -> Result<Value, LocalRunnerError> {
+        let mut message = parse_provider_message(line)?;
+        codex_endpoint::redact_message(&mut message, &self.diagnostic_secrets);
+        Ok(message)
     }
 }
 

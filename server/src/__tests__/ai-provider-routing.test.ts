@@ -5,10 +5,79 @@ import {
   aiRoutingModel,
   createAiConnectionSchema,
   isAiConnectionCompatible,
+  aiConnectionCatalogSlug,
+  aiProviderSetupPreset,
+  CODEX_HEADER_ENV_KEYS,
+  isCodexHeaderName,
+  isPrivateEndpointHost,
 } from "@paperclipai/shared";
+import * as runnerContract from "../../../packages/paperclip-runner/src/drivers/codex-endpoint.js";
 import { managedProviderRouting } from "../services/ai-provider-routing.js";
+import { parse } from "smol-toml";
 
 describe("provider routing", () => {
+  const codexRoute = { kind: "gateway", protocol: "codex", auth: "bearer", baseUrl: "http://192.168.1.10/backend-api/codex", models: [],
+    codex: { webSearch: "live", serviceTier: "default", standaloneWebSearch: true } } as const;
+  const codexInput = { provider: "openai", method: "api_key", name: "Codex backend", ownership: "personal", routing: { ...codexRoute, models: [] }, apiKey: "custom-bearer" } as const;
+  it("keeps Runner and control-plane endpoint contracts in sync", () => {
+    expect(runnerContract.CODEX_HEADER_ENV_KEYS).toEqual(CODEX_HEADER_ENV_KEYS);
+    for (const name of ["ChatGPT-Account-Id", "X-Custom", "Authorization", "host", "bad\nname", "Content-Length"])
+      expect(runnerContract.isCodexHeaderName(name)).toBe(isCodexHeaderName(name));
+    for (const host of ["10.0.0.1", "172.16.0.1", "172.31.255.255", "172.32.0.1", "192.168.1.1", "169.254.169.254", "8.8.8.8"])
+      expect(runnerContract.isPrivateEndpointHost(host)).toBe(isPrivateEndpointHost(host));
+  });
+  it("accepts a private HTTP Codex backend only for native Runner Codex", () => {
+    expect(aiConnectionCatalogSlug("openai", codexRoute)).toBe("codex-endpoint");
+    expect(aiProviderSetupPreset("codex-endpoint")).toEqual({ provider: "codex", protocol: "codex", label: "Codex endpoint" });
+    const input = createAiConnectionSchema.parse(codexInput);
+    expect(isAiConnectionCompatible(input, "paperclip_runner", "gpt-5.4", "codex")).toBe(true);
+    for (const [adapter, provider] of [["codex_local", undefined], ["paperclip_runner", "opencode"], ["paperclip_runner", "acpx"]])
+      expect(isAiConnectionCompatible(input, adapter!, "model", provider)).toBe(false);
+    for (const baseUrl of ["http://8.8.8.8/backend-api/codex", "http://169.254.169.254/", "http://user:secret@192.168.1.10", "http://192.168.1.10/?key=value"])
+      expect(aiProviderRoutingSchema.safeParse({ ...codexRoute, baseUrl }).success).toBe(false);
+    expect(aiProviderRoutingSchema.safeParse({ ...codexRoute, protocol: "responses" }).success).toBe(false);
+    expect(aiProviderRoutingSchema.safeParse({ ...codexRoute, auth: "none" }).success).toBe(false);
+  });
+  it("projects token and header secrets without writing them into Codex config", () => {
+    const routing = aiProviderRoutingSchema.parse(codexRoute);
+    const result = managedProviderRouting(routing, "codex_local", JSON.stringify({
+      bearerToken: "custom-bearer", httpHeaders: [{ name: "ChatGPT-Account-Id", value: "private-account" }, { name: "X-Custom", value: "private-header" }],
+    }), "gpt-5.4");
+    expect(result.env).toEqual({ PAPERCLIP_AI_PROVIDER_KEY: "custom-bearer", PAPERCLIP_CODEX_HEADER_SECRET_0: "private-account", PAPERCLIP_CODEX_HEADER_SECRET_1: "private-header" });
+    expect(result.codexConfig).toContain('base_url = "http://192.168.1.10/backend-api/codex"');
+    expect(parse(result.codexConfig)).toMatchObject({
+      model_provider: "paperclip", openai_base_url: codexRoute.baseUrl,
+      web_search: "live", service_tier: "default", analytics: { enabled: false }, feedback: { enabled: false },
+      features: { api_key_model_discovery: true, standalone_web_search: true },
+      model_providers: { paperclip: { name: "openai", requires_openai_auth: false,
+        model_catalog_url: `${codexRoute.baseUrl}/models`, supports_websockets: true, supports_standalone_web_search: true,
+        env_http_headers: { "ChatGPT-Account-Id": "PAPERCLIP_CODEX_HEADER_SECRET_0" } } },
+    });
+    expect(result.codexConfig).not.toMatch(/custom-bearer|private-account|private-header|\/v1/);
+  });
+  it("projects Codex search settings without adding native plugins or MCP servers", () => {
+    const route = aiProviderRoutingSchema.parse({ ...codexRoute, codex: { webSearch: "disabled", serviceTier: "fast", standaloneWebSearch: false } });
+    const config = parse(managedProviderRouting(route, "codex_local", JSON.stringify({ bearerToken: "fixture", httpHeaders: [] }), "").codexConfig);
+    expect(config).toMatchObject({ web_search: "disabled", service_tier: "fast", features: { standalone_web_search: false }, model_providers: { paperclip: { requires_openai_auth: false, supports_websockets: true, supports_standalone_web_search: false } } });
+    expect(config.features).not.toHaveProperty("plugins");
+    expect(config).not.toHaveProperty("mcp_servers");
+    expect(aiProviderRoutingSchema.safeParse({ ...codexRoute, protocol: "responses", baseUrl: "https://example.com/v1", codex: {} }).success).toBe(false);
+  });
+  it.each([undefined, {}, { webSearch: "live", serviceTier: "default" }])("rejects incomplete saved Codex settings: %j", codex => {
+    expect(aiProviderRoutingSchema.safeParse({ ...codexRoute, codex }).success).toBe(false);
+    expect(() => managedProviderRouting({ ...codexRoute, models: [], codex } as never, "codex_local",
+      JSON.stringify({ bearerToken: "fixture", httpHeaders: [] }), "")).toThrow();
+  });
+  it("rejects duplicate, reserved and injected custom headers", () => {
+    for (const httpHeaders of [
+      [{ name: "Authorization", value: "Bearer override" }],
+      [{ name: "X-Header", value: "first" }, { name: "x-header", value: "second" }],
+      [{ name: "X-Header", value: "value\r\nInjected: yes" }],
+      [{ name: "bad name", value: "value" }],
+      [{ name: "X-Header", value: "nul\0value" }],
+    ]) expect(createAiConnectionSchema.safeParse({ ...codexInput, httpHeaders }).success).toBe(false);
+    expect(createAiConnectionSchema.safeParse({ ...codexInput, routing: { ...codexRoute, baseUrl: "https://example.com/v1", protocol: "responses" }, httpHeaders: [{ name: "X-Header", value: "secret" }] }).success).toBe(false);
+  });
   it("routes managed OpenRouter accounts to direct and native Pi without OpenCode configuration", () => {
     const routing = aiProviderRoutingSchema.parse({ kind: "openrouter", protocol: "chat" });
     expect(aiRoutingHarness("paperclip_runner", "acpx", "pi")).toBe("pi_local");

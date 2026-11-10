@@ -1,7 +1,11 @@
 import { OPENROUTER_ATTRIBUTION_HEADERS, isOpenRouterUrl, openRouterClaudeHeaders, openRouterCodexHeaders } from "@paperclipai/shared/openrouter-attribution";
+import { stringify } from "smol-toml";
 import {
   aiRoutingBaseUrl,
   aiRoutingModel,
+  CODEX_HEADER_ENV_KEYS,
+  codexEndpointCredentialSchema,
+  codexEndpointOptionsSchema,
   type AiProviderRouting,
 } from "@paperclipai/shared";
 
@@ -25,8 +29,45 @@ export function managedProviderRouting(
     env.AWS_EC2_METADATA_DISABLED = "true";
     env.AWS_BEARER_TOKEN_BEDROCK = credential;
   } else if (harness === "codex_local") {
-    env.PAPERCLIP_AI_PROVIDER_KEY = credential;
-    codexConfig = `model_provider = "paperclip"\n[model_providers.paperclip]\nname = "Paperclip connection"\nbase_url = ${JSON.stringify(baseUrl)}\nwire_api = "responses"\nrequires_openai_auth = false\n${route.auth === "none" ? "" : 'env_key = "PAPERCLIP_AI_PROVIDER_KEY"\n'}`;
+    if (route.protocol === "codex") {
+      // Both the token and arbitrary header values live in the existing vault slot.
+      let stored: unknown;
+      try { stored = JSON.parse(credential); }
+      catch { throw new Error("Invalid Codex endpoint credentials"); }
+      const parsed = codexEndpointCredentialSchema.safeParse(stored);
+      if (!parsed.success) throw new Error("Invalid Codex endpoint credentials");
+      env.PAPERCLIP_AI_PROVIDER_KEY = parsed.data.bearerToken;
+      const headerBindings = Object.fromEntries(parsed.data.httpHeaders.map((header, i) => {
+        const key = CODEX_HEADER_ENV_KEYS[i]!;
+        env[key] = header.value;
+        return [header.name, key];
+      }));
+      const options = codexEndpointOptionsSchema.parse(route.codex);
+      codexConfig = stringify({
+        model_provider: "paperclip",
+        // Mirror the endpoint for code paths using the built-in OpenAI provider.
+        openai_base_url: baseUrl,
+        web_search: options.webSearch,
+        service_tier: options.serviceTier,
+        analytics: { enabled: false },
+        feedback: { enabled: false },
+        features: { api_key_model_discovery: true, standalone_web_search: options.standaloneWebSearch },
+        model_providers: { paperclip: {
+          name: "openai",
+          base_url: baseUrl,
+          model_catalog_url: `${baseUrl}/models`,
+          wire_api: "responses",
+          requires_openai_auth: false,
+          supports_websockets: true,
+          supports_standalone_web_search: options.standaloneWebSearch,
+          env_key: "PAPERCLIP_AI_PROVIDER_KEY",
+          env_http_headers: headerBindings,
+        } },
+      });
+    } else {
+      env.PAPERCLIP_AI_PROVIDER_KEY = credential;
+      codexConfig = `model_provider = "paperclip"\n[model_providers.paperclip]\nname = "Paperclip connection"\nbase_url = ${JSON.stringify(baseUrl)}\nwire_api = "responses"\nrequires_openai_auth = false\n${route.auth === "none" ? "" : 'env_key = "PAPERCLIP_AI_PROVIDER_KEY"\n'}`;
+    }
     if (openrouter) codexConfig += openRouterCodexHeaders();
   } else if (harness === "claude_local") {
     env.ANTHROPIC_BASE_URL = baseUrl;

@@ -1963,6 +1963,7 @@ const aiCatalogEntries = [
   { slug: "google", name: "Google Gemini", provider: "google", envKey: "GEMINI_API_KEY", url: "https://generativelanguage.googleapis.com/*" },
   { slug: "bedrock", name: "Amazon Bedrock", provider: "anthropic", envKey: "AWS_BEARER_TOKEN_BEDROCK", description: "Use Claude through Amazon Bedrock with a Bedrock API key and AWS region." },
   { slug: "responses-api", name: "Responses API", provider: "openai", envKey: "OPENAI_API_KEY", description: "Connect any compatible harness to an OpenAI Responses-compatible provider or gateway, including Emissary." },
+  { slug: "codex-endpoint", name: "Codex endpoint", provider: "openai", envKey: "PAPERCLIP_AI_PROVIDER_KEY", description: "Connect Paperclip Runner Codex to a custom Codex backend with a base URL, Bearer token and HTTP headers." },
   { slug: "messages-api", name: "Messages API", provider: "anthropic", envKey: "ANTHROPIC_API_KEY", description: "Connect any compatible harness to an Anthropic Messages-compatible provider or gateway." },
   { slug: "chat-completions-api", name: "Chat Completions API", provider: "openai", envKey: "OPENAI_API_KEY", description: "Connect any compatible harness to a Chat Completions-compatible provider or gateway." },
   { slug: "local", name: "Local endpoint", provider: "openai", envKey: "OPENAI_API_KEY", description: "Use a local model server in the agent’s execution environment." },

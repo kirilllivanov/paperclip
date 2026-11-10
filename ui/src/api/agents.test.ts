@@ -4,6 +4,16 @@ import { api } from "./client";
 
 afterEach(() => vi.restoreAllMocks());
 
+it("distinguishes a prospective Codex environment reset from the saved agent environment", async () => {
+  const get = vi.spyOn(api, "get").mockResolvedValue([]);
+  await agentsApi.adapterModels("company-1", "paperclip_runner", { provider: "codex", agentId: "agent-1", environmentId: null });
+  const url = new URL(get.mock.calls[0]![0], "http://paperclip.local");
+  expect(url.searchParams.has("environmentId")).toBe(true);
+  expect(url.searchParams.get("environmentId")).toBe("");
+  await agentsApi.adapterModels("company-1", "paperclip_runner", { provider: "codex", agentId: "agent-1" });
+  expect(new URL(get.mock.calls[1]![0], "http://paperclip.local").searchParams.has("environmentId")).toBe(false);
+});
+
 describe("agentsApi.retryFailedRun", () => {
   it("sends only the selected failed run and preserves a retry waiting for dispatch", async () => {
     const post = vi.spyOn(api, "post").mockResolvedValue({

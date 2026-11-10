@@ -252,12 +252,13 @@ describe("Connectors landing page", () => {
   }
 
   it("shows provider catalog rows and splits legacy gateway accounts by API format", async () => {
-    const slugs = ["notion", "openrouter", "bedrock", "google", "responses-api", "messages-api", "chat-completions-api", "local"];
+    const slugs = ["notion", "openrouter", "bedrock", "google", "responses-api", "codex-endpoint", "messages-api", "chat-completions-api", "local"];
     listGalleryMock.mockResolvedValue({ apps: slugs.map(slug => getAppStoreDefinition(slug)) });
     listApplicationsMock.mockResolvedValue({ applications: [application({ id: "gateway-app", name: "Model gateway", applicationKey: "app-gallery:gateway", metadata: { sourceTemplateKey: "gateway" } })] });
-    listConnectionsMock.mockResolvedValue({ connections: ["responses", "messages"].map(protocol => connection({
+    listConnectionsMock.mockResolvedValue({ connections: ["responses", "messages", "codex"].map(protocol => connection({
       id: protocol, name: `${protocol} account`, applicationId: "gateway-app", connectionPurpose: "ai",
-      config: { sourceTemplateKey: "gateway", ai: { provider: protocol === "messages" ? "anthropic" : "openai", method: "api_key", routing: { kind: "gateway", protocol, auth: "bearer", baseUrl: "https://models.example.com/v1", models: [] } } },
+      config: { sourceTemplateKey: "gateway", ai: { provider: protocol === "messages" ? "anthropic" : "openai", method: "api_key", routing: { kind: "gateway", protocol, auth: "bearer", baseUrl: "https://models.example.com/v1", models: [],
+        ...(protocol === "codex" ? { codex: { webSearch: "live", serviceTier: "default", standaloneWebSearch: true } } : {}) } } },
     })) });
     await renderBrowse();
     expect(container.textContent).not.toContain("Connect a model provider");
@@ -265,13 +266,29 @@ describe("Connectors landing page", () => {
     for (const slug of slugs) expect(container.querySelector(`[data-app-slug="${slug}"]`)).not.toBeNull();
     const responses = container.querySelector('[data-app-slug="responses-api"]')!;
     const messages = container.querySelector('[data-app-slug="messages-api"]')!;
+    const codex = container.querySelector('[data-app-slug="codex-endpoint"]')!;
     expect(responses.textContent).toContain("responses account");
     expect(responses.textContent).not.toContain("messages account");
     expect(messages.textContent).toContain("messages account");
+    expect(codex.textContent).toContain("codex account");
+    expect(responses.textContent).not.toContain("codex account");
     const bedrock = container.querySelector('[data-app-slug="bedrock"]')!;
     const connect = Array.from(bedrock.querySelectorAll('button')).find(button => button.textContent?.includes("Connect"))!;
     await act(() => connect.click());
     expect(navigateMock).toHaveBeenCalledWith("/apps/connect?source=bedrock");
+  });
+
+  it("offers Codex endpoint in the catalog before any account exists", async () => {
+    listGalleryMock.mockResolvedValue({ apps: [getAppStoreDefinition("codex-endpoint")] });
+    listApplicationsMock.mockResolvedValue({ applications: [] });
+    listConnectionsMock.mockResolvedValue({ connections: [] });
+    await renderBrowse();
+    await search("Codex");
+    const row = container.querySelector('[data-app-slug="codex-endpoint"]')!;
+    expect(row).not.toBeNull();
+    const connect = [...row.querySelectorAll("button")].find(button => button.textContent?.includes("Connect"))!;
+    await act(() => connect.click());
+    expect(navigateMock).toHaveBeenCalledWith("/apps/connect?source=codex-endpoint");
   });
 
   it("offers assistant setup from Connections without choosing an agent", async () => {

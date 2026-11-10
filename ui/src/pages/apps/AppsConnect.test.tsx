@@ -410,6 +410,7 @@ describe("AppsConnect — Connect with a link (M4 frame)", () => {
     document.body.innerHTML = "";
     vi.restoreAllMocks();
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
   async function render(queryClient?: QueryClient, byoOnly = false, content?: ReactNode) {
@@ -1016,6 +1017,32 @@ describe("AppsConnect — Connect with a link (M4 frame)", () => {
   // Access step (PAP-17835). Identity and agent reach are chosen before any
   // credential is entered.
   // -------------------------------------------------------------------------
+
+  it("connects a native Codex backend from its catalog link", async () => {
+    vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+    mockSearch.value = "source=codex-endpoint";
+    const createAiAccount = vi.spyOn(aiConnectionsApi, "create").mockResolvedValue({
+      connectionId: "codex-account", grantId: "codex-grant",
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(["ai-connections", "company-1", undefined], { canManageConnections: true, connections: [] });
+    client.setQueryData(["agents", "company-1", "provider-access"], []);
+    await render(client);
+    expect(container.textContent).toContain("Connect Codex endpoint");
+    expect(container.textContent).not.toContain("API format");
+    await act(async () => {
+      setInputValue(container.querySelector<HTMLInputElement>('input[aria-label="Provider URL"]')!, "https://codex.example.com/backend-api/codex");
+      setInputValue(container.querySelector<HTMLInputElement>('input[aria-label="Bearer token"]')!, "fixture-codex-token");
+    });
+    await act(async () => container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await flushReact();
+    expect(createAiAccount).toHaveBeenCalledWith("company-1", expect.objectContaining({
+      provider: "openai", method: "api_key", apiKey: "fixture-codex-token",
+      routing: expect.objectContaining({ kind: "gateway", protocol: "codex", auth: "bearer", baseUrl: "https://codex.example.com/backend-api/codex" }),
+    }));
+    expect(mockNavigate).toHaveBeenCalledWith("/apps/codex-account/permissions");
+    expect(connectAppMock).not.toHaveBeenCalled();
+  });
 
   it.each([false, true])("offers both Anthropic methods without the obsolete REST option (task repair: %s)", async (taskRepair) => {
     const createAiAccount = vi.spyOn(aiConnectionsApi, "create").mockResolvedValue({
